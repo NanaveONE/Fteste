@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Audit a REAL XenosRecomp generated C++ cache and its decompressed SPIR-V.
+"""Validate real XenosRecomp's Zstandard + SMOL-V cache and input coverage.
 
-Never generates replacement/fake shaders. No game data or shader bytes are
-included in the JSON report. Must be run before linking the Vulkan plugin.
+Important: XenosRecomp stores SMOL-V, not plain SPIR-V, in the zstd array.
+This is a structural audit, NOT full spirv-val or Vulkan rendering validation.
 """
 from __future__ import annotations
 
@@ -13,163 +13,102 @@ import json
 from pathlib import Path
 import re
 import shutil
-import struct
 import subprocess
-from collections import Counter
-
-
-ENTRY_SECTION = re.compile(r'\bShaderCacheEntry\s+g_shaderCacheEntries\s*\[\s*\]\s*=\s*\{(.*?)\}\s*;', re.S)
-ENTRY_LINE = re.compile(
-    r'^\s*\{\s*(0[xX][\da-fA-F]+)\s*,\s*'
-    r'(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*'
-    r'(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*"([^"]*)"\s*\},?\s*$')
-COMPRESSED = re.compile(r'\b(?:extern\s+)?const\s+uint8_t\s+g_compressedSpirvCache\[\s*\]\s*=\s*\{(.*?)\}\s*;', re.S)
-DECOMPRESSED_SIZE = re.compile(r'\bg_spirvCacheDecompressedSize\s*=\s*(\d+)\s*;')
-COMPRESSED_SIZE = re.compile(r'\bg_spirvCacheCompressedSize\s*=\s*(\d+)\s*;')
-SPIRV_MAGIC = 0x07230203
-MAX_CACHE = 512 * 1024 * 1024
 
 
 class CacheError(ValueError):
     pass
 
 
-def extract_cpp_cache(source: str) -> tuple[list[dict], bytes, int]:
-    section = ENTRY_SECTION.search(source)
-    data = COMPRESSED.search(source)
-    decompressed = DECOMPRESSED_SIZE.search(source)
-    compressed = COMPRESSED_SIZE.search(source)
-    if not all((section, data, decompressed, compressed)):
-        raise CacheError('XenosRecomp cache format incomplete or changed')
-    entries = []
-    for line in section.group(1).splitlines():
-        if not line.strip():
-            continue
-        match = ENTRY_LINE.fullmatch(line)
-        if not match:
-            raise CacheError('Unrecognized/invalid shader cache entry: ' + line[:110])
-        values = match.groups()
-        entries.append({
-            'hash': int(values[0], 16), 'spirv_offset': int(values[3]),
-            'spirv_size': int(values[4]), 'source': values[8],
-        })
-    if not entries:
-        raise CacheError('XenosRecomp generated an EMPTY SPIR-V shader cache')
-    tokens = [x.strip() for x in data.group(1).split(',') if x.strip()]
+def zstd_decode(compressed: bytes, expected: int) -> bytes:
+    if not 0 < expected <= 512 * 1024 * 1024:
+        raise CacheError('Uncompressed cache size out of bounds')
+    name = ctypes.util.find_library('zstd')
+    if name:
+        library = ctypes.CDLL(name)
+        library.ZSTD_decompress.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p, ctypes.c_size_t]
+        library.ZSTD_decompress.restype = ctypes.c_size_t
+        library.ZSTD_isError.argtypes = [ctypes.c_size_t]
+        library.ZSTD_isError.restype = ctypes.c_uint
+        dst = ctypes.create_string_buffer(expected)
+        src = ctypes.create_string_buffer(compressed)
+        count = library.ZSTD_decompress(dst, expected, src, len(compressed))
+        if library.ZSTD_isError(count) or count != expected:
+            raise CacheError('Invalid zstd cache or decompressed length')
+        return dst.raw
+    zstd = shutil.which('zstd')
+    if not zstd:
+        raise CacheError('zstd or libzstd required')
+    proc = subprocess.run([zstd, '-dcq'], input=compressed, capture_output=True, check=False)
+    if proc.returncode != 0 or len(proc.stdout) != expected:
+        raise CacheError('Invalid zstd cache or decompressed length')
+    return proc.stdout
+
+
+def inspect_cpp(path: Path, scan_dir: Path, min_coverage: float = 1.0) -> dict:
+    if not (0 < min_coverage <= 1):
+        raise CacheError('Invalid minimum coverage')
+    source = path.read_text(encoding='utf-8')
     try:
-        blob = bytes(int(v, 0) for v in tokens)
-    except (ValueError, OverflowError) as err:
-        raise CacheError('Invalid zstd array in generated cache') from err
-    expected_compressed = int(compressed.group(1))
-    expected_uncompressed = int(decompressed.group(1))
-    if len(blob) != expected_compressed:
-        raise CacheError('Generated compressed array length mismatch')
-    if not 0 < expected_uncompressed <= MAX_CACHE:
-        raise CacheError('Missing/oversized decompressed shader cache')
-    return entries, blob, expected_uncompressed
-
-
-def decompress_zstd(data: bytes, size: int) -> bytes:
-    executable = shutil.which('zstd')
-    if executable:
-        p = subprocess.run([executable, '-dcq'], input=data, stdout=subprocess.PIPE,
-                           stderr=subprocess.PIPE, check=False)
-        if p.returncode:
-            raise CacheError('zstd could not decode XenosRecomp SPIR-V: ' + p.stderr.decode(errors='replace')[:300])
-        decoded = p.stdout
-    else:
-        name = ctypes.util.find_library('zstd')
-        if not name:
-            raise CacheError('zstd decoder not installed: install zstd or libzstd')
-        lib = ctypes.CDLL(name)
-        lib.ZSTD_decompress.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p, ctypes.c_size_t]
-        lib.ZSTD_decompress.restype = ctypes.c_size_t
-        lib.ZSTD_isError.argtypes = [ctypes.c_size_t]
-        lib.ZSTD_isError.restype = ctypes.c_uint
-        output = ctypes.create_string_buffer(size)
-        source = ctypes.create_string_buffer(data)
-        actual = lib.ZSTD_decompress(output, size, source, len(data))
-        if lib.ZSTD_isError(actual):
-            raise CacheError('libzstd failed to decode generated SPIR-V cache')
-        decoded = output.raw[:actual]
-    if len(decoded) != size:
-        raise CacheError(f'Decompressed shader bytes {len(decoded)} != declared {size}')
-    return decoded
-
-
-def inspect_spirv(data: bytes, *, offset: int, size: int) -> None:
-    if size < 20 or size % 4 or offset < 0 or offset + size > len(data):
-        raise CacheError('Shader SPIR-V slice is empty, unaligned, or out of bounds')
-    magic, version, generator, bound, schema = struct.unpack_from('<5I', data, offset)
-    if magic != SPIRV_MAGIC:
-        raise CacheError('Shader SPIR-V magic does not match a compiled module')
-    if not (0x10000 <= version < 0x20000 and bound > 0 and schema == 0):
-        raise CacheError('Shader SPIR-V header invalid')
-    # Check the instruction word stream without assuming any vendor extension.
-    cursor = offset + 20
-    end = offset + size
-    if cursor == end:
-        raise CacheError('SPIR-V module has no instructions')
-    while cursor < end:
-        first_word = struct.unpack_from('<I', data, cursor)[0]
-        words = first_word >> 16
-        if not words or cursor + words * 4 > end:
-            raise CacheError('Malformed SPIR-V instruction word count')
-        cursor += words * 4
-
-
-def audit_cache(source: Path, scan_dir: Path, *, required_coverage: float = 1.0,
-                run_spirv_val: bool = False) -> dict:
-    if not 0.0 < required_coverage <= 1.0:
-        raise CacheError('required_coverage must be between 0 and 1')
-    if not scan_dir.is_dir():
-        raise CacheError('Private Xenos scan directory missing')
-    expected = {}
-    for path in scan_dir.glob('*.bin'):
-        if path.name.startswith(('PS_', 'VS_')):
-            expected[path.name.casefold()] = path
+        raw_entries = source.split('ShaderCacheEntry g_shaderCacheEntries[] = {', 1)[1].split('};', 1)[0]
+    except IndexError as exc:
+        raise CacheError('XenosRecomp entries array missing') from exc
+    row = re.compile(r'\{\s*0x[\da-fA-F]+,\s*\d+,\s*\d+,\s*(\d+),\s*(\d+),\s*\d+,\s*\d+,\s*\d+,\s*"([^"]+)"\s*\}')
+    entries = [row.search(line) for line in raw_entries.splitlines() if line.strip()]
+    if not entries or any(item is None for item in entries):
+        raise CacheError('Empty or invalid XenosRecomp entries')
+    cm = re.search(r'g_compressedSpirvCache\[\]\s*=\s*\{([^}]*)\}', source, re.S)
+    um = re.search(r'g_spirvCacheDecompressedSize\s*=\s*(\d+)', source)
+    cs = re.search(r'g_spirvCacheCompressedSize\s*=\s*(\d+)', source)
+    if not all((cm, um, cs)):
+        raise CacheError('Missing compressed cache metadata')
+    try:
+        compressed = bytes(int(n) for n in cm.group(1).split(',') if n.strip())
+    except (ValueError, OverflowError) as exc:
+        raise CacheError('Corrupt compressed cache initializer') from exc
+    if len(compressed) != int(cs.group(1)):
+        raise CacheError('Compressed cache length mismatch')
+    blob = zstd_decode(compressed, int(um.group(1)))
+    expected = {p.name.casefold() for p in scan_dir.glob('*.bin') if p.name.startswith(('PS_', 'VS_'))}
     if not expected:
-        raise CacheError('No shader containers (PS_/VS_*.bin) in private scan directory')
-    text = source.read_text(encoding='utf-8')
-    entries, compressed, declared_size = extract_cpp_cache(text)
-    decoded = decompress_zstd(compressed, declared_size)
-    from_cache = Counter()
-    unmatched = 0
-    duplicates = 0
+        raise CacheError('No private Xenos PS_/VS_ inputs')
     visited = set()
-    val = shutil.which('spirv-val') if run_spirv_val else None
-    if run_spirv_val and not val:
-        raise CacheError('--spirv-val requested but spirv-val is unavailable')
-    for entry in entries:
-        name = Path(entry['source'].replace('\\', '/')).name.casefold()
+    ranges = []
+    unmatched = 0
+    duplicate = 0
+    stages = {'PS': 0, 'VS': 0}
+    for item in entries:
+        offset, size, path_in_cpp = item.groups()
+        offset, size = int(offset), int(size)
+        name = Path(path_in_cpp.replace('\\', '/')).name.casefold()
         if name not in expected:
             unmatched += 1
             continue
         if name in visited:
-            duplicates += 1
+            duplicate += 1
         visited.add(name)
-        inspect_spirv(decoded, offset=entry['spirv_offset'], size=entry['spirv_size'])
-        from_cache[name[:2].upper()] += 1
-        if val:
-            code = decoded[entry['spirv_offset']:entry['spirv_offset'] + entry['spirv_size']]
-            result = subprocess.run([val, '--target-env', 'vulkan1.1', '-'], input=code,
-                                    capture_output=True, check=False)
-            if result.returncode:
-                raise CacheError(f'spirv-val rejected {name}: {result.stderr.decode(errors="replace")[:300]}')
+        stages[name[:2].upper()] += 1
+        # Real XenosRecomp stores SMOL-V (bytes 'LOMS'), NOT raw SPIR-V.
+        if size < 20 or offset < 0 or offset + size > len(blob) or blob[offset:offset+4] != b'LOMS':
+            raise CacheError(f'Invalid SMOL-V module boundaries for {name}')
+        ranges.append((offset, offset+size))
+    ranges.sort()
+    if not ranges or ranges[0][0] != 0 or ranges[-1][1] != len(blob) or any(
+            ranges[i][1] != ranges[i+1][0] for i in range(len(ranges)-1)):
+        raise CacheError('SMOL-V cache slices do not cover the decompressed array exactly')
     covered = len(visited)
-    expected_stages = Counter(name[:2].upper() for name in expected)
+    ratio = covered / len(expected)
+    ok = ratio >= min_coverage and not unmatched and not duplicate
     return {
-        'state': 'PASS' if (not unmatched and not duplicates and
-                            covered / len(expected) >= required_coverage) else 'INCOMPLETE',
-        'expected_containers': len(expected), 'compiled_containers': covered,
-        'missing_containers': len(expected) - covered, 'coverage_percent': round(covered * 100 / len(expected), 2),
-        'expected_vertex_shaders': expected_stages['VS'], 'expected_pixel_shaders': expected_stages['PS'],
-        'compiled_vertex_shaders': from_cache['VS'], 'compiled_pixel_shaders': from_cache['PS'],
-        'unmatched_cache_entries': unmatched, 'duplicate_cache_entries': duplicates,
-        'uncompressed_spirv_bytes': len(decoded),
-        'validation_level': 'SPIR-V header/word structure' + (' + spirv-val Vulkan1.1' if val else ''),
-        'minimum_coverage': required_coverage,
-        'warning': 'Valid SPIR-V modules do NOT prove Fable II Vulkan/EDRAM gameplay compatibility.',
+        'state': 'PASS' if ok else 'INCOMPLETE',
+        'expected': len(expected), 'compiled': covered, 'missing': len(expected)-covered,
+        'coverage_percent': round(ratio*100, 2),
+        'vertex': stages['VS'], 'pixel': stages['PS'],
+        'unmatched': unmatched, 'duplicate': duplicate,
+        'compressed_zstd_bytes': len(compressed),
+        'uncompressed_smol_bytes': len(blob),
+        'validation': 'zstd decompression and per-shader SMOL-V magic/offset verification',
+        'warning': 'Does not run SPIRV-Tools spirv-val or verify Vulkan/EDRAM rendering.',
     }
 
 
@@ -180,24 +119,18 @@ def main() -> int:
     parser.add_argument('--min-coverage', type=float, default=1.0)
     parser.add_argument('--report', type=Path)
     parser.add_argument('--spirv-val', action='store_true')
-    args = parser.parse_args()
+    a = parser.parse_args()
+    if a.spirv_val:
+        parser.exit(2, 'BLOCKED: SMOL-V must be decoded back to SPIR-V before spirv-val can run.\n')
     try:
-        result = audit_cache(args.cache, args.scan_dir,
-                             required_coverage=args.min_coverage,
-                             run_spirv_val=args.spirv_val)
-    except (CacheError, OSError, UnicodeError) as e:
-        parser.exit(2, f'BLOCKED: {e}\n')
-    if args.report:
-        args.report.parent.mkdir(parents=True, exist_ok=True)
-        args.report.write_text(json.dumps(result, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
-    print(f'{result["state"]}: SPIR-V {result["compiled_containers"]}/{result["expected_containers"]} '
-          f'({result["coverage_percent"]}%) VS={result["compiled_vertex_shaders"]}, '
-          f'PS={result["compiled_pixel_shaders"]}')
-    if result['state'] != 'PASS':
-        print(f'BLOCKED: {result["missing_containers"]} shaders were not translated '
-              f'or {result["unmatched_cache_entries"]} entries did not match the private shader scan')
-        return 2
-    return 0
+        data = inspect_cpp(a.cache, a.scan_dir, a.min_coverage)
+    except (OSError, UnicodeError, CacheError) as error:
+        parser.exit(2, f'BLOCKED: {error}\n')
+    if a.report:
+        a.report.parent.mkdir(parents=True, exist_ok=True)
+        a.report.write_text(json.dumps(data, indent=2, ensure_ascii=False)+'\n')
+    print(f'{data["state"]}: {data["compiled"]}/{data["expected"]} shaders translated ({data["coverage_percent"]}%)')
+    return 0 if data['state'] == 'PASS' else 2
 
 
 if __name__ == '__main__':
