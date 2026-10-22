@@ -16,15 +16,18 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Testar gerador de target Android
-        run: python -m unittest discover -s tests -v
-      - name: Conferir interfaces Fable II e Xerenge
-        run: python scripts/verify_port_layout.py
-      - name: Produzir copia local do CMake Android sem alterar submodulos
+      - name: Testar arquivos e overlay Android
+        run: |
+          python -m unittest discover -s tests -v
+          python scripts/verify_port_layout.py
+          bash -n scripts/package_android_apk.sh
+      - name: Conferir geracao do CMake Android em copia local
         run: |
           python scripts/prepare_android_target.py
           grep -n 'add_library(fable_2 SHARED' build/fable2-android-worktree/CMakeLists.txt
+          grep -n 'GPU_PLUGINS plume' build/fable2-android-worktree/CMakeLists.txt
       - name: Resumo
+        if: always()
         run: |
-          echo 'Este workflow verifica a integracao do codigo, nao produz um APK.' >> "$GITHUB_STEP_SUMMARY"
-          echo 'Falta integrar o renderer Vulkan de Fable II, SDK Android e codegen.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Este workflow valida fontes e configuracao: NAO produz APK.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Para gameplay faltam SDK ReXGlue Android compativel, codigo nativo e renderizador Vulkan especifico de Fable II.' >> "$GITHUB_STEP_SUMMARY"

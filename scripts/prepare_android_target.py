@@ -30,12 +30,25 @@ else()
     add_executable(fable_2 ${FABLE2_SOURCES})
 endif()"""
 
+GPU_ORIGINAL = "rexglue_setup_target(fable_2 GPU_PLUGINS xenos)"
+GPU_REPLACEMENT = """if(ANDROID)
+    # Xerenge supports a separate Vulkan plugin, but its stock renderer
+    # is Burnout-specific. Fable's shader and draw backend remains to be ported.
+    rexglue_setup_target(fable_2 GPU_PLUGINS plume)
+else()
+    rexglue_setup_target(fable_2 GPU_PLUGINS xenos)
+endif()"""
+
 
 def replace_target(content: str) -> str:
     count = content.count(ORIGINAL)
     if count != 1:
         raise ValueError(f"Expected exactly one desktop target block, found {count}; inspect upstream changes")
-    return content.replace(ORIGINAL, REPLACEMENT)
+    result = content.replace(ORIGINAL, REPLACEMENT)
+    gpu_count = result.count(GPU_ORIGINAL)
+    if gpu_count != 1:
+        raise ValueError(f"Expected exactly one desktop GPU setup, found {gpu_count}")
+    return result.replace(GPU_ORIGINAL, GPU_REPLACEMENT)
 
 
 def excluded(_directory: str, names: list[str]) -> set[str]:
@@ -67,7 +80,7 @@ def main() -> int:
     shutil.copytree(source, output, ignore=excluded, symlinks=False)
     (output / "CMakeLists.txt").write_text(patched, encoding="utf-8")
     print(f"[OK] Prepared Android shared-library CMake target in {output}")
-    print("[PENDING] This is not a compiled game: GPU backend, SDK, SDL_main, game codegen and Android hooks remain.")
+    print("[PENDING] Fable-specific Plume GPU support, matching SDK, SDL_main, codegen and Android hooks remain.")
     print("[PENDING] No commercial game data was included. Do not commit build/ to GitHub.")
     return 0
 

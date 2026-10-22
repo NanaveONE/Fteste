@@ -1,29 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.nanaveone.fable2">
-
-    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
-    <uses-feature android:name="android.hardware.gamepad" android:required="false" />
-    <!-- Optional at INSTALL time only. Vulkan capabilities MUST be checked at runtime. -->
+    <!-- Optional at install time only: the native renderer MUST validate Vulkan capabilities. -->
     <uses-feature android:name="android.hardware.vulkan.version"
         android:version="0x401000" android:required="false" />
-
-    <application
-        android:label="Fable II Android"
-        android:allowBackup="false"
-        android:extractNativeLibs="true"
-        android:hasCode="true"
-        android:theme="@android:style/Theme.Material.NoActionBar"
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+    <uses-feature android:name="android.hardware.gamepad" android:required="false" />
+    <application android:label="Fable II Android" android:allowBackup="false"
+        android:extractNativeLibs="true" android:theme="@android:style/Theme.Material.NoActionBar"
         android:hardwareAccelerated="true">
-        <activity
-            android:name=".Fable2Activity"
-            android:exported="true"
-            android:screenOrientation="sensorLandscape"
-            android:configChanges="keyboard|keyboardHidden|orientation|screenSize|smallestScreenSize|screenLayout|uiMode|navigation">
+        <activity android:name=".Fable2LauncherActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <activity android:name=".Fable2Activity" android:exported="false"
+            android:screenOrientation="sensorLandscape"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenSize|smallestScreenSize|screenLayout|uiMode|navigation" />
     </application>
 </manifest>

@@ -57,3 +57,25 @@ it must not be presented as a successful Android port.
 Reusing derived Xerenge code in a distributed app requires complying with its
 copyleft license and applicable third-party notices. No copyrighted game files
 are included in this repository.
+
+## Integração 02: pasta do jogo e empacotamento nativo
+
+- `Fable2LauncherActivity.java`: seletor de pasta do Android 12 via Storage
+  Access Framework, com cópia em segundo plano de `default.xex` e `data/`
+  para a pasta privada do app. **Não extrai ISOs** e não traz dados comerciais.
+- `Fable2Activity.java`: Activity SDL3 já preparada para carregar bibliotecas
+  Fable II, sem Burnout.
+- `scripts/prepare_android_target.py`: agora seleciona `GPU_PLUGINS plume`
+  no Android e `xenos` no desktop. Isso só configura a intenção do backend;
+  **o Plume de Xerenge ainda NÃO renderiza Fable II**.
+- `scripts/package_android_apk.sh`: empacota e assina um APK SOMENTE quando
+  o código nativo ARM64, runtime e plugin Vulkan necessários já existirem.
+  Ausência de qualquer `.so` impede gerar um APK fictício.
+- `docs/GPU-PORT-ROADMAP.md`: delimita o trabalho gráfico restante.
+
+### Pré-requisitos para empacotamento (ainda faltam as bibliotecas reais)
+
+`ANDROID_HOME`, `ANDROID_NDK_HOME`, `SDL_JAVA_DIR` (fontes Java SDL3) e
+`NATIVE_LIB_DIR` (bibliotecas ARM64 reais) devem apontar para pastas locais.
+O APK assinado não comprova que o jogo funciona, e o empacotador não constrói
+as bibliotecas nativas por conta própria.
