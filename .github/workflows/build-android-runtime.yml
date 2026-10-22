@@ -15,8 +15,6 @@ jobs:
       - name: Preparar Android SDK sem pacote legado tools
         uses: android-actions/setup-android@v3
         with:
-          # O padrao da action e 'tools platform-tools'; 'tools' nao existe
-          # mais no repositorio SDK atual e bloqueia o job antes do CMake.
           packages: platform-tools
       - name: Instalar ferramentas e Android NDK
         run: |
@@ -30,19 +28,29 @@ jobs:
           git clone --depth 1 --recurse-submodules \
             https://github.com/shipa-2/rexglue-xerenge.git \
             build/deps/rexglue-xerenge
-      - name: Compilar runtime Android REAL (sem Fable nem APK)
+      - name: Compilar, verificar ELF e coletar as dependencias ARM64
         env:
           BUILD_JOBS: '2'
         run: |
           bash scripts/build_rexglue_android_sdk.sh
-      - name: Publicar biblioteca open-source compilada
+          test -s build/artifacts/rexglue-android-arm64/librexruntime.so
+          test -s build/artifacts/rexglue-android-arm64/runtime-build-report.json
+          python3 - <<'PYREPORT'
+          import json
+          from pathlib import Path
+          report = json.loads(Path('build/artifacts/rexglue-android-arm64/runtime-build-report.json').read_text())
+          assert report['status'] == 'ARM64_ELF_AND_DT_NEEDED_VERIFIED', report
+          print('Validated real ReXGlue Android arm64 ELF:', report['library_count'], 'shared libraries')
+          PYREPORT
+      - name: Publicar runtime ReXGlue e dependencias ARM64 verificadas
         uses: actions/upload-artifact@v4
         with:
           name: rexglue-android-arm64-runtime-only
-          path: build/rexglue-android-arm64/**/librexruntime.so
+          path: build/artifacts/rexglue-android-arm64/
           if-no-files-found: error
+          retention-days: 7
       - name: Resumo
         if: always()
         run: |
-          echo 'Este workflow compila só o runtime ARM64; não contém arquivos comerciais do Fable II.' >> "$GITHUB_STEP_SUMMARY"
-          echo 'Não valida renderização, código recompilado do jogo ou gameplay.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Build tenta produzir e inspecionar a biblioteca ReXGlue ARM64 real + DT_NEEDED.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Nao inclui codigo nem arquivos do jogo. Nao valida EDRAM/Vulkan/gameplay.' >> "$GITHUB_STEP_SUMMARY"

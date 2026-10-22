@@ -46,16 +46,23 @@ cmake -S "$sdk" -B "$build" -G Ninja \
   -DREXGLUE_ENABLE_TRACY=OFF -DREXGLUE_ENABLE_PERF_COUNTERS=OFF \
   -DREXGLUE_ARM64_MARCH=armv8-a
 cmake --build "$build" --target rexruntime --parallel "${BUILD_JOBS:-2}"
-mapfile -t libraries < <(find "$build" -type f -name librexruntime.so -print)
-if [[ ${#libraries[@]} != 1 ]]; then
-  echo "BLOCKED: expected one ARM64 librexruntime.so, found ${#libraries[@]}" >&2
-  exit 2
-fi
+# Upstream CMakeList.txt deliberately emits shared libraries OUTSIDE the
+# -B binary directory: ${REXGLUE_ROOT}/out/${REX_PLATFORM}/librexruntime.so.
+# Package the freshly built ARM64 output with dependency closure and an ELF
+# report, so CI artifact uploads do not assume a wrong path or ship host libs.
+artifact="$root/build/artifacts/rexglue-android-arm64"
 readelf="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
-"$readelf" -h "${libraries[0]}" | grep -q 'Machine:.*AArch64' || {
-  echo 'BLOCKED: ReXGlue runtime was not compiled for AArch64' >&2; exit 2;
+[[ -x "$readelf" ]] || {
+  echo "BLOCKED: missing NDK llvm-readelf: $readelf" >&2; exit 2;
 }
-echo "Android ReXGlue runtime compiled: ${libraries[0]}"
-printf 'export REXRUNTIME_LIB=%q\n' "${libraries[0]}"
+python3 "$root/scripts/package_rexruntime_arm64.py" \
+  --sdk-root "$sdk" --build-root "$build" --ndk-home "$ANDROID_NDK_HOME" \
+  --output "$artifact" --readelf "$readelf"
+[[ -s "$artifact/librexruntime.so" && -s "$artifact/runtime-build-report.json" ]] || {
+  echo 'BLOCKED: verified ARM64 runtime was not staged into build/artifacts' >&2
+  exit 2
+}
+echo "Compiled and packaged genuine ReXGlue AArch64 runtime: $artifact/librexruntime.so"
+printf 'export REXRUNTIME_LIB=%q\n' "$artifact/librexruntime.so"
 printf 'export REXSDK_DIR=%q\n' "$sdk"
-echo 'This is a real runtime build, not proof of the Fable II guest code or GPU.'
+echo 'NOT VERIFIED: Fable II guest .so, Plume/EDRAM, audio output, saves and gameplay.'

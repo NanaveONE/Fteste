@@ -82,14 +82,18 @@ python3 "$root/scripts/validate_xenosrecomp_cache.py" \
 # prebuilt Windows Fable runtime even when its numeric plugin ABI matches.
 if [[ -z "${REXRUNTIME_LIB:-}" ]]; then
   bash "$root/scripts/build_rexglue_android_sdk.sh"
-  mapfile -t runtime_candidates < <(find "$root/build/rexglue-android-arm64" \
-    -type f -name librexruntime.so -print)
-  if [[ ${#runtime_candidates[@]} != 1 ]]; then
-    echo 'BLOCKED: no unique ReXGlue ARM64 runtime built' >&2
+  # CMake emits into SDK/out/android-arm64; use the verified staged artifact
+  # rather than searching the -B build tree (which contains no such .so).
+  runtime_artifact="$root/build/artifacts/rexglue-android-arm64/librexruntime.so"
+  [[ -s "$runtime_artifact" ]] || {
+    echo 'BLOCKED: ReXGlue ARM64 runtime missing from verified artifact stage' >&2
     exit 2
-  fi
-  export REXRUNTIME_LIB="${runtime_candidates[0]}"
+  }
+  export REXRUNTIME_LIB="$runtime_artifact"
 fi
+[[ -s "$REXRUNTIME_LIB" ]] || {
+  echo 'BLOCKED: supplied ARM64 runtime library does not exist' >&2; exit 2;
+}
 bash "$root/scripts/build_android_native.sh"
 # Optional second pass: user-captured runtime shaders are translated offline
 # and rebuilt into the Plume plugin with the Bootstrap symbol set.
@@ -121,6 +125,10 @@ args=(--game-lib "$root/build/fable2-android-arm64/libfable2.so"
       --cxx-lib "$cxx"
       --readelf "$readelf"
       --output "$root/build/android-native-stage")
+# Libraries linked by librexruntime.so (e.g. SDL3) are normally staged next
+# to it by package_rexruntime_arm64.py. Always include that directory when
+# closing the APK dependency graph, even without a user-specified search root.
+args+=(--search-dir "$(dirname "$(realpath "$REXRUNTIME_LIB")")")
 if [[ -n "${FABLE2_LIBRARY_SEARCH_DIRS:-}" ]]; then
   IFS=: read -r -a dirs <<< "$FABLE2_LIBRARY_SEARCH_DIRS"
   for dir in "${dirs[@]}"; do [[ -n "$dir" ]] && args+=(--search-dir "$dir"); done
