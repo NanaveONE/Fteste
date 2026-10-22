@@ -27,10 +27,12 @@ cat <<EOF
 Source repositories fetched into $base
 Build the host utility and translator on Linux x86_64:
   cmake -S external/Xerenge/tools/cxx -B build/deps/xerenge-tools -G Ninja -DCMAKE_BUILD_TYPE=Release
-  cmake --build build/deps/xerenge-tools --target dump_xex_image
+  cmake --build build/deps/xerenge-tools --target xerenge_tool_dump_xex
   cmake -S build/deps/XenosRecomp-xerenge -B build/deps/xenos-build -G Ninja -DCMAKE_BUILD_TYPE=Release
   cmake --build build/deps/xenos-build --target XenosRecomp
 
-Then run scripts/generate_fable_shaders.py using paths to the two host tools.
+For the matching host ReXGlue generator and other host tools run:
+  bash scripts/build_host_tools.sh
+Then provide your private Fable II files and run scripts/attempt_playable_build.sh --check.
 DO NOT upload game data, generated guest code, or private shader dumps to GitHub.
 EOF

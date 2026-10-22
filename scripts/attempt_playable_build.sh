@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+# Real, fail-closed build chain: Fable II codegen -> ARM64 .so -> Fable shaders
+# -> Plume .so -> ELF dependencies -> signed APK. No dummy binary is generated.
+# Success means an APK was packaged, NOT that gameplay works on a phone.
+set -euo pipefail
+root="$(cd "$(dirname "$0")/.." && pwd)"
+usage() {
+  cat <<'HELP'
+Usage: bash scripts/attempt_playable_build.sh --check | --build
+  --check   Report missing game/toolchain inputs, without generating anything.
+  --build   Try to compile an actual Fable II APK from YOUR local legal game dump.
+
+Linux x86_64 + clang, cmake, ninja, JDK, Android SDK/NDK required.
+Required env: FABLE2_GAME_ROOT, ANDROID_NDK_HOME, ANDROID_HOME,
+  REXSDK_DIR, PLUME_ROOT, XENOS_RECOMP_ROOT, FABLE2_CODEGEN_TOOL,
+  FABLE2_SHADER_TRANSLATOR, FABLE2_XEX_DUMPER.
+Optional: SDL_JAVA_DIR, FABLE2_SHADER_HEADER, REXRUNTIME_LIB,
+  FABLE2_LIBRARY_SEARCH_DIRS (colon-separated), FABLE2_EXTRA_LIBS (colon-separated), BUILD_JOBS.
+
+Run scripts/setup_gpu_dependencies.sh and scripts/build_host_tools.sh first.
+Nothing uploads proprietary game files. Build outputs are ignored in build/.
+HELP
+}
+[[ $# == 1 ]] || { usage >&2; exit 2; }
+case "$1" in
+  --check) exec python3 "$root/scripts/playable_preflight.py" --json "$root/build/playable-preflight.json" ;;
+  --build) ;;
+  *) usage >&2; exit 2 ;;
+esac
+python3 "$root/scripts/playable_preflight.py" --json "$root/build/playable-preflight.json"
+: "${FABLE2_GAME_ROOT:?}"
+: "${ANDROID_NDK_HOME:?}"
+: "${ANDROID_HOME:?}"
+: "${REXSDK_DIR:?}"
+: "${PLUME_ROOT:?}"
+: "${XENOS_RECOMP_ROOT:?}"
+: "${FABLE2_CODEGEN_TOOL:?}"
+: "${FABLE2_SHADER_TRANSLATOR:?}"
+: "${FABLE2_XEX_DUMPER:?}"
+shader_dir="$root/build/fable2-shaders"
+if [[ -e "$shader_dir" ]]; then
+  # Do not silently reuse a cache from a different XEX/build attempt.
+  python3 - "$FABLE2_GAME_ROOT/default.xex" "$shader_dir" <<'PY'
+import hashlib, json, sys
+from pathlib import Path
+xex, folder = map(Path, sys.argv[1:])
+report_file = folder / 'fable-shader-report.json'
+cache = folder / 'shader_cache.cpp'
+if not report_file.is_file() or not cache.is_file():
+    raise SystemExit('BLOCKED: partial shader cache exists. Move build/fable2-shaders aside before retrying.')
+report = json.loads(report_file.read_text(encoding='utf-8'))
+if report.get('source_title') != 'Fable II' or report.get('input_sha256') != hashlib.sha256(xex.read_bytes()).hexdigest() \
+   or report.get('cache_sha256') != hashlib.sha256(cache.read_bytes()).hexdigest():
+    raise SystemExit('BLOCKED: shader cache belongs to different game input or was modified.')
+print('OK: existing shader cache matches the game XEX')
+PY
+else
+  python3 "$root/scripts/generate_fable_shaders.py" \
+    --game-xex "$FABLE2_GAME_ROOT/default.xex" \
+    --output "$shader_dir" \
+    --xex-dumper "$FABLE2_XEX_DUMPER" \
+    --translator "$FABLE2_SHADER_TRANSLATOR" \
+    --header "${FABLE2_SHADER_HEADER:-$XENOS_RECOMP_ROOT/XenosRecomp/shader_common.h}"
+fi
+bash "$root/scripts/build_android_native.sh"
+bash "$root/scripts/build_fable_gpu.sh"
+: "${REXRUNTIME_LIB:?Set REXRUNTIME_LIB to the ARM64 librexruntime.so from the SAME ReXGlue SDK build}"
+cxx="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so"
+readelf="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
+args=(--game-lib "$root/build/fable2-android-arm64/libfable2.so"
+      --gpu-lib "$root/build/fable2-gpu-android-arm64/librexgpu-plume.so"
+      --runtime-lib "$REXRUNTIME_LIB"
+      --cxx-lib "$cxx"
+      --readelf "$readelf"
+      --output "$root/build/android-native-stage")
+if [[ -n "${FABLE2_LIBRARY_SEARCH_DIRS:-}" ]]; then
+  IFS=: read -r -a dirs <<< "$FABLE2_LIBRARY_SEARCH_DIRS"
+  for dir in "${dirs[@]}"; do [[ -n "$dir" ]] && args+=(--search-dir "$dir"); done
+fi
+if [[ -n "${FABLE2_EXTRA_LIBS:-}" ]]; then
+  IFS=: read -r -a extras <<< "$FABLE2_EXTRA_LIBS"
+  for lib in "${extras[@]}"; do [[ -n "$lib" ]] && args+=(--extra-lib "$lib"); done
+fi
+if [[ -e "$root/build/android-native-stage" ]]; then
+  echo 'BLOCKED: old native stage exists. Remove build/android-native-stage after confirming it is disposable.' >&2
+  exit 2
+fi
+python3 "$root/scripts/stage_android_libs.py" "${args[@]}"
+SDL_JAVA_DIR="${SDL_JAVA_DIR:-$REXSDK_DIR/thirdparty/sdl3/android-project/app/src/main/java}" \
+NATIVE_LIB_DIR="$root/build/android-native-stage" \
+bash "$root/scripts/package_android_apk.sh"
+echo 'APK signed; gameplay still needs actual device tests (render, input, audio, save, stability).'

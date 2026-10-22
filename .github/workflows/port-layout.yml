@@ -20,13 +20,19 @@ jobs:
         run: |
           python -m unittest discover -s tests -v
           python scripts/verify_port_layout.py
-          bash -n scripts/package_android_apk.sh scripts/build_android_native.sh scripts/build_fable_gpu.sh scripts/setup_gpu_dependencies.sh
+          bash -n scripts/package_android_apk.sh scripts/build_android_native.sh scripts/build_fable_gpu.sh scripts/setup_gpu_dependencies.sh scripts/build_host_tools.sh scripts/attempt_playable_build.sh scripts/device_smoke_test.sh
           python scripts/check_native_libs.py --help
           python scripts/compare_sdk_abi.py --help
           python scripts/generate_fable_shaders.py --help
           python scripts/gpu_log_report.py --help
           python scripts/audit_android_sdk.py --help
           python scripts/stage_android_libs.py --help
+          python scripts/playable_preflight.py --help
+          # This checkout has no commercial game dump / NDK inputs: failing closed is expected.
+          if bash scripts/attempt_playable_build.sh --check; then
+            echo "Unexpected preflight success without private game inputs" >&2
+            exit 1
+          fi
           test -f port/gpu/CMakeLists.txt
       - name: Conferir geracao do CMake Android em copia local
         run: |

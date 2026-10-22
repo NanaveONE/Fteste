@@ -154,3 +154,36 @@ O overlay Android não pede mais `GPU_PLUGINS plume` ao SDK como se o SDK já di
 
 Consulte `CHANGELOG-05.md` para o fluxo completo. Nenhuma destas verificações
 substitui compilar e executar o jogo no celular.
+
+## Integração 06: tentativa de compilação completa e diagnósticos no Android
+
+Agora há um fluxo único (sem gerar APK de mentira) para tentar as etapas em
+sequência: código do jogo -> shaders Fable -> ARM64 ReXGlue -> GPU Vulkan ->
+ELF -> APK assinado. **Ele falhará sem um `default.xex` real compatível e
+sem NDK/SDK instalados**, conforme esperado. Executar testes de Python não
+compila Fable II.
+
+```bash
+# Em um computador Linux x86_64 com Android SDK/NDK instalados:
+git submodule update --init --recursive
+bash scripts/setup_gpu_dependencies.sh
+bash scripts/build_host_tools.sh
+# Execute os export FABLE2_* impressos na tela pelo script acima.
+# Configure os caminhos privados impressos pelo build_host_tools.sh e demais envs.
+export FABLE2_GAME_ROOT=/pasta/privada/Fable2-extraido
+export ANDROID_NDK_HOME=/seu/ndk
+export ANDROID_HOME=/seu/android-sdk
+export REXSDK_DIR="$PWD/build/deps/rexglue-xerenge"
+export PLUME_ROOT="$PWD/build/deps/plume-xerenge"
+export XENOS_RECOMP_ROOT="$PWD/build/deps/XenosRecomp-xerenge"
+bash scripts/attempt_playable_build.sh --check
+bash scripts/attempt_playable_build.sh --build
+```
+
+Após gerar um APK **real** e importar os dados no telefone, usar
+`bash scripts/device_smoke_test.sh` via ADB. A coleta verifica sinais de
+falha, **não comprova gameplay, FPS, áudio ou salvamento**.
+
+Não comite arquivos comerciais nem envie o jogo para GitHub Actions. Os scripts
+que executam `cmake` e XenosRecomp dependem de um host Linux x86_64; Termux
+sozinho não é um substituto direto do toolchain Linux/Android NDK.
