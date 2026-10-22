@@ -22,6 +22,23 @@ def abi_version(content: str) -> str | None:
     return found.group(1) if found else None
 
 
+def virtual_layout(content: str) -> list[str]:
+    """Return vtable-facing declarations in source order (not just ABI integer).
+
+    Intentionally a conservative source audit, not an ABI compiler. We require
+    matching source SDKs for runtime/plugin link and reject virtual-function
+    additions/reordering across SDK checkouts even with matching ABI numbers.
+    """
+    # Drop comments so keyword sightings in prose cannot pass the audit.
+    clean = re.sub(r'/\*.*?\*/|//[^\n]*', '', content, flags=re.S)
+    layout = []
+    for match in re.finditer(r'\bvirtual\s+([^;{]+)(?:[;{])', clean, flags=re.S):
+        declaration = ' '.join(match.group(1).split())
+        if '(' in declaration and ')' in declaration:
+            layout.append(declaration)
+    return layout
+
+
 def compare(a: Path, b: Path) -> tuple[list[str], list[str]]:
     errors: list[str] = []
     warnings: list[str] = []
@@ -41,6 +58,15 @@ def compare(a: Path, b: Path) -> tuple[list[str], list[str]]:
                 errors.append(f'Incompatible GPU ABI versions: {left_abi} != {right_abi}')
             else:
                 print(f'OK: both GPU plugin interfaces declare ABI {left_abi}')
+        if relative.endswith('/interfaces/graphics.h'):
+            old_layout = virtual_layout(left.decode('utf-8', errors='replace'))
+            new_layout = virtual_layout(right.decode('utf-8', errors='replace'))
+            if old_layout != new_layout:
+                errors.append(
+                    'Different IGraphicsSystem virtual method layout ({} vs {} methods). '
+                    'Do NOT mix prebuilt Fable ReXGlue runtime with Xerenge Plume; '
+                    'rebuild both against ONE reconciled SDK revision.'
+                    .format(len(old_layout), len(new_layout)))
         if left != right:
             a_hash = hashlib.sha256(left).hexdigest()[:12]
             b_hash = hashlib.sha256(right).hexdigest()[:12]

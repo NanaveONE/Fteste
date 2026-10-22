@@ -46,6 +46,12 @@ public final class Fable2LauncherActivity extends Activity {
         super.onCreate(state);
         File external = getExternalFilesDir(null);
         gameRoot = new File(external != null ? external : getFilesDir(), "game");
+        // Recover an interrupted rename from a prior import. Never silently
+        // discard the previous complete installation.
+        File backup = new File(gameRoot.getParentFile(), "game.backup");
+        if (!gameRoot.exists() && backup.isDirectory()) {
+            backup.renameTo(gameRoot);
+        }
         LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
         int padding = Math.round(22 * getResources().getDisplayMetrics().density);
@@ -114,33 +120,70 @@ public final class Fable2LauncherActivity extends Activity {
         worker.execute(() -> {
             try {
                 List<GameDocument> top = listChildren(tree, DocumentsContract.getTreeDocumentId(tree));
-                boolean hasXex = false, hasData = false;
+                GameDocument xex = null;
+                boolean hasData = false;
                 for (GameDocument item : top) {
-                    if ("default.xex".equalsIgnoreCase(item.name) && !item.directory) hasXex = true;
+                    if ("default.xex".equalsIgnoreCase(item.name) && !item.directory) xex = item;
                     if ("data".equalsIgnoreCase(item.name) && item.directory) hasData = true;
                 }
-                if (!hasXex || !hasData) {
+                if (xex == null || !hasData) {
                     throw new IOException("Pasta inválida: escolha a pasta que contém default.xex e data/");
                 }
-                if (!gameRoot.isDirectory() && !gameRoot.mkdirs()) {
-                    throw new IOException("Não foi possível criar a pasta de destino");
+                // Check the actual executable BEFORE copying several GB of data.
+                Uri xexUri = DocumentsContract.buildDocumentUriUsingTree(tree, xex.id);
+                final Fable2GameCompatibility.Profile profile;
+                try (InputStream source = getContentResolver().openInputStream(xexUri)) {
+                    if (source == null) throw new IOException("Não foi possível ler default.xex");
+                    profile = Fable2GameCompatibility.checkXex(source);
                 }
-                // If installation is interrupted, a previous completion marker
-                // must not make partial data appear launch-ready.
-                File completed = new File(gameRoot, ".import-complete");
-                if (completed.exists() && !completed.delete()) {
-                    throw new IOException("Não foi possível invalidar instalação anterior");
-                }
-                for (GameDocument item : top) {
-                    copyDocument(tree, item, gameRoot, 0);
-                }
-                if (!new File(gameRoot, "default.xex").isFile()
-                        || !new File(gameRoot, "data").isDirectory()) {
-                    throw new IOException("Dados essenciais ausentes após importação");
-                }
-                try (FileOutputStream marker = new FileOutputStream(completed)) {
-                    marker.write("Fable II data imported\n".getBytes(java.nio.charset.StandardCharsets.UTF_8));
-                    marker.getFD().sync();
+                File base = gameRoot.getParentFile();
+                File staging = new File(base, "game.pending");
+                File backup = new File(base, "game.backup");
+                // Pending is app-created and never launchable; discard only
+                // that staging tree, never the user's complete game directory.
+                if (staging.exists()) deleteAppOwnedTree(staging, 0);
+                if (!staging.mkdirs()) throw new IOException("Não foi possível criar área temporária");
+                try {
+                    for (GameDocument item : top) {
+                        copyDocument(tree, item, staging, staging, 0);
+                    }
+                    Fable2GameCompatibility.checkData(staging, profile);
+                    // Re-check the local copy; an interrupted/truncated copy
+                    // must never receive the completion marker.
+                    try (InputStream local = new java.io.FileInputStream(new File(staging, "default.xex"))) {
+                        if (!Fable2GameCompatibility.checkXex(local).id.equals(profile.id)) {
+                            throw new IOException("default.xex mudou durante a importação");
+                        }
+                    }
+                    File completed = new File(staging, ".import-complete");
+                    try (FileOutputStream marker = new FileOutputStream(completed)) {
+                        marker.write(("Fable II " + profile.id + " imported\n")
+                                .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                        marker.getFD().sync();
+                    }
+                    // Replace the old complete tree only after validating the
+                    // entire new tree. Both paths share a parent/filesystem.
+                    if (backup.exists()) {
+                        if (hasGameFiles()) deleteAppOwnedTree(backup, 0);
+                        else throw new IOException("Recuperação pendente em game.backup; não sobrescrever");
+                    }
+                    boolean movedOld = false;
+                    if (gameRoot.exists()) {
+                        if (!gameRoot.renameTo(backup)) {
+                            throw new IOException("Não foi possível preservar instalação anterior");
+                        }
+                        movedOld = true;
+                    }
+                    if (!staging.renameTo(gameRoot)) {
+                        if (movedOld && !backup.renameTo(gameRoot)) {
+                            throw new IOException("Falha ao instalar e restaurar backup; preserve game.backup");
+                        }
+                        throw new IOException("Não foi possível finalizar importação");
+                    }
+                    if (movedOld) deleteAppOwnedTree(backup, 0);
+                } finally {
+                    // After a successful rename staging no longer exists.
+                    if (staging.exists()) deleteAppOwnedTree(staging, 0);
                 }
                 runOnUiThread(() -> {
                     importButton.setEnabled(true);
@@ -197,18 +240,19 @@ public final class Fable2LauncherActivity extends Activity {
         return results;
     }
 
-    private void copyDocument(Uri tree, GameDocument item, File parent, int depth) throws IOException {
+    private void copyDocument(Uri tree, GameDocument item, File parent, File importRoot,
+                              int depth) throws IOException {
         if (depth > MAX_TREE_DEPTH || ++totalDocuments > MAX_DOCUMENTS)
             throw new IOException("Limite de profundidade ou quantidade de arquivos atingido");
         String safeName = item.name;
-        if (parent.equals(gameRoot)) {
+        if (parent.equals(importRoot)) {
             if (safeName.equalsIgnoreCase("default.xex")) safeName = "default.xex";
             if (safeName.equalsIgnoreCase("data")) safeName = "data";
             if (safeName.equals(".import-complete"))
                 throw new IOException("Nome reservado na pasta selecionada");
         }
         File target = new File(parent, safeName);
-        String base = gameRoot.getCanonicalPath() + File.separator;
+        String base = importRoot.getCanonicalPath() + File.separator;
         if (!target.getCanonicalPath().startsWith(base)) {
             throw new IOException("Caminho fora da pasta do aplicativo bloqueado");
         }
@@ -216,12 +260,12 @@ public final class Fable2LauncherActivity extends Activity {
             if (!target.isDirectory() && !target.mkdirs())
                 throw new IOException("Não foi possível criar " + item.name);
             for (GameDocument child : listChildren(tree, item.id)) {
-                copyDocument(tree, child, target, depth + 1);
+                copyDocument(tree, child, target, importRoot, depth + 1);
             }
             return;
         }
         Uri document = DocumentsContract.buildDocumentUriUsingTree(tree, item.id);
-        File temporary = new File(parent, item.name + ".importing");
+        File temporary = new File(parent, safeName + ".importing");
         if (!temporary.getCanonicalPath().startsWith(base))
             throw new IOException("Destino temporário inválido");
         try (InputStream in = getContentResolver().openInputStream(document);
@@ -240,6 +284,25 @@ public final class Fable2LauncherActivity extends Activity {
         if (totalDocuments % 20 == 0) {
             final int count = totalDocuments;
             runOnUiThread(() -> status.setText("Arquivos processados: " + count));
+        }
+    }
+
+    /** Only delete known, app-private temporary/backup trees. */
+    private void deleteAppOwnedTree(File folder, int depth) throws IOException {
+        if (depth > MAX_TREE_DEPTH) throw new IOException("Pasta temporária profunda demais");
+        File base = gameRoot.getParentFile().getCanonicalFile();
+        File canonical = folder.getCanonicalFile();
+        if (!canonical.getPath().startsWith(base.getPath() + File.separator)
+                || canonical.equals(gameRoot.getCanonicalFile())) {
+            throw new IOException("Tentativa de apagar caminho fora da área temporária");
+        }
+        if (folder.isDirectory()) {
+            File[] children = folder.listFiles();
+            if (children == null) throw new IOException("Não foi possível listar pasta temporária");
+            for (File item : children) deleteAppOwnedTree(item, depth + 1);
+        }
+        if (folder.exists() && !folder.delete()) {
+            throw new IOException("Não foi possível remover arquivo temporário: " + folder.getName());
         }
     }
 

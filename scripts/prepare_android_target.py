@@ -64,6 +64,9 @@ GPU_CONFIG_NEW = '''#if defined(__ANDROID__)
 
 PATH_START_OLD = '''    const std::filesystem::path exe_dir =
         rex::filesystem::GetExecutableFolder();'''
+# The same exe_dir declaration also appears in OnPostInitLogging(). Only
+# replace the one inside OnConfigurePaths(), not every identical declaration.
+PATH_CONFIG_ORIGINAL = '  void OnConfigurePaths(rex::PathConfig& paths) override {\n' + PATH_START_OLD
 PATH_START_NEW = '''    const std::filesystem::path exe_dir =
         rex::filesystem::GetExecutableFolder();
 #if defined(__ANDROID__)
@@ -73,6 +76,27 @@ PATH_START_NEW = '''    const std::filesystem::path exe_dir =
         paths.game_data_root = env;
       }
     }
+#endif'''
+
+CONFIG_LOAD_OLD = '    fable2::config::Load(exe_dir / "fable2_config.toml");'
+CONFIG_LOAD_NEW = '''#if defined(__ANDROID__)
+    // The .so/plugin directory is read-only on Android. Keep this file beside
+    // writable saves/cache, as configured by the SDLActivity before SDL_main.
+    const char* user_root = std::getenv("FABLE2_USER_ROOT");
+    if (!user_root || !*user_root) {
+      REXSYS_ERROR("FABLE2_USER_ROOT is required on Android");
+      std::exit(1);
+    }
+    const std::filesystem::path settings_dir(user_root);
+    std::error_code settings_ec;
+    std::filesystem::create_directories(settings_dir, settings_ec);
+    if (settings_ec) {
+      REXSYS_ERROR("Cannot create writable Fable II settings directory: {}", settings_ec.message());
+      std::exit(1);
+    }
+    fable2::config::Load(settings_dir / "fable2_config.toml");
+#else
+    fable2::config::Load(exe_dir / "fable2_config.toml");
 #endif'''
 
 PATH_STORAGE_OLD = '''    std::error_code ec;
@@ -97,6 +121,14 @@ PATH_STORAGE_NEW = '''    std::error_code ec;
     ec.clear();
     std::filesystem::create_directories(paths.cache_root, ec);'''
 
+# Fable's desktop CMake stages .cmd launchers and injects debug Lua files into
+# data/. On Android these must not be copied into nativeLibraryDir or into a
+# proprietary input tree. Keep desktop behavior on desktop only.
+DESKTOP_STAGING_START = '# Stage a copy of the README + the function-tracing launcher next to the exe'
+DESKTOP_STAGING_END = '# --- Recomp user config (fable2_config.toml) -------------------------------'
+DESKTOP_ARTWORK_START = 'add_custom_command(TARGET fable_2 POST_BUILD\n    COMMAND ${CMAKE_COMMAND} -E copy_if_different\n            "${CMAKE_CURRENT_SOURCE_DIR}/assets/app-icon.png"'
+DESKTOP_ARTWORK_END = '# --- Vulkan renderer: Stage 2 (source-built plugin, swappable at launch) --'
+
 WIN_DIAGNOSTICS = ('fable2_av_probe.h', 'fable2_stall_dump.h')
 
 
@@ -109,12 +141,39 @@ def exactly_once(text: str, before: str, after: str, what: str) -> str:
 
 def replace_target(content: str) -> str:
     result = exactly_once(content, ORIGINAL, REPLACEMENT, "native target")
-    return exactly_once(result, GPU_ORIGINAL, GPU_REPLACEMENT, "GPU setup")
+    result = exactly_once(result, GPU_ORIGINAL, GPU_REPLACEMENT, "GPU setup")
+    if DESKTOP_STAGING_START in result or DESKTOP_STAGING_END in result:
+        result = patch_desktop_staging(result)
+    if DESKTOP_ARTWORK_START in result or DESKTOP_ARTWORK_END in result:
+        result = patch_desktop_artwork(result)
+    return result
+
+
+def patch_desktop_staging(content: str) -> str:
+    if content.count(DESKTOP_STAGING_START) != 1 or content.count(DESKTOP_STAGING_END) != 1:
+        raise ValueError('CMake desktop staging anchors changed; review upstream before patching')
+    start = content.index(DESKTOP_STAGING_START)
+    end = content.index(DESKTOP_STAGING_END)
+    middle = content[start:end]
+    return content[:start] + 'if(NOT ANDROID)\n' + middle + 'endif() # NOT ANDROID: desktop script/Lua staging\n\n' + content[end:]
+
+
+def patch_desktop_artwork(content: str) -> str:
+    if content.count(DESKTOP_ARTWORK_START) != 1 or content.count(DESKTOP_ARTWORK_END) != 1:
+        raise ValueError('CMake desktop asset anchors changed; review upstream before patching')
+    start = content.index(DESKTOP_ARTWORK_START)
+    end = content.index(DESKTOP_ARTWORK_END)
+    return (content[:start] + 'if(NOT ANDROID)\n' + content[start:end]
+            + 'endif() # NOT ANDROID: desktop app icon/command file\n\n' + content[end:])
 
 
 def patch_app(content: str) -> str:
     content = exactly_once(content, GPU_CONFIG_OLD, GPU_CONFIG_NEW, "GPU default")
-    content = exactly_once(content, PATH_START_OLD, PATH_START_NEW, "data path")
+    content = exactly_once(content, CONFIG_LOAD_OLD, CONFIG_LOAD_NEW, "writable config")
+    # OnConfigurePaths is the only hook that can use paths.game_data_root.
+    content = exactly_once(content, PATH_CONFIG_ORIGINAL,
+                           '  void OnConfigurePaths(rex::PathConfig& paths) override {\n' + PATH_START_NEW,
+                           "OnConfigurePaths data path")
     return exactly_once(content, PATH_STORAGE_OLD, PATH_STORAGE_NEW, "writable user data")
 
 

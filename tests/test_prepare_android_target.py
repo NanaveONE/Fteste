@@ -4,6 +4,8 @@ from pathlib import Path
 from scripts.prepare_android_target import (
     ORIGINAL, REPLACEMENT, GPU_ORIGINAL, GPU_REPLACEMENT,
     GPU_CONFIG_OLD, PATH_START_OLD, PATH_STORAGE_OLD,
+    CONFIG_LOAD_OLD, PATH_CONFIG_ORIGINAL, DESKTOP_STAGING_START, DESKTOP_STAGING_END,
+    DESKTOP_ARTWORK_START, DESKTOP_ARTWORK_END,
     replace_target, patch_app, patch_main, prepare, excluded,
 )
 
@@ -25,14 +27,58 @@ class PortOverlayTests(unittest.TestCase):
             replace_target("add_executable(fable_2 main.cpp)")
 
     def test_gpu_pre_setup_defaults_to_android_plume(self):
-        data = "\n".join([GPU_CONFIG_OLD, PATH_START_OLD, PATH_STORAGE_OLD])
+        data = "\n".join([GPU_CONFIG_OLD, CONFIG_LOAD_OLD, PATH_CONFIG_ORIGINAL, PATH_STORAGE_OLD])
         patched = patch_app(data)
         self.assertIn('config.gpu_plugin.empty() ? "plume"', patched)
         self.assertIn('config.gpu_plugin.empty() ? "xenos"', patched)
         self.assertIn("FABLE2_GAME_ROOT", patched)
+        self.assertIn('fable2::config::Load(settings_dir / "fable2_config.toml");', patched)
         self.assertIn("FABLE2_USER_ROOT", patched)
         self.assertIn('paths.cache_root = writable_root / "cache"', patched)
         self.assertIn('paths.user_data_root = exe_dir / "saves"', patched)
+
+    def test_identical_exe_dir_outside_path_hook_unchanged(self):
+        # Actual upstream has the same declaration both in OnPostInitLogging
+        # and in OnConfigurePaths. The old global replace made CI fail.
+        original = "\n".join([
+            '  void OnPostInitLogging() override {', PATH_START_OLD,
+            CONFIG_LOAD_OLD, '  }',
+            PATH_CONFIG_ORIGINAL, PATH_STORAGE_OLD, '  }', GPU_CONFIG_OLD,
+        ])
+        updated = patch_app(original)
+        self.assertEqual(updated.count('rex::filesystem::GetExecutableFolder();'), 2)
+        self.assertEqual(updated.count('if (paths.game_data_root.empty())'), 1)
+        self.assertIn('fable2::config::Load(settings_dir / "fable2_config.toml");', updated)
+        self.assertIn('fable2::config::Load(exe_dir / "fable2_config.toml");', updated)
+
+    def test_real_upstream_android_overlay(self):
+        # On GitHub Actions, this tests the pinned REAL code instead of
+        # synthetic strings, preventing repeat of the integration 05-07 CI failure.
+        upstream = Path(__file__).resolve().parents[1] / 'external/Fable-2-Recomp'
+        if not (upstream / 'CMakeLists.txt').is_file():
+            self.skipTest('Submodules unavailable on this host')
+        cmake = replace_target((upstream / 'CMakeLists.txt').read_text())
+        app = patch_app((upstream / 'src/core/fable_2_app.h').read_text())
+        patch_main((upstream / 'src/main.cpp').read_text())
+        self.assertIn('add_library(fable_2 SHARED', cmake)
+        self.assertIn('if(NOT ANDROID)', cmake)
+        self.assertIn('endif() # NOT ANDROID: desktop app icon/command file', cmake)
+        self.assertIn('fable2::config::Load(settings_dir / "fable2_config.toml");', app)
+        self.assertEqual(app.count('if (paths.game_data_root.empty())'), 2)
+
+    def test_desktop_staging_is_not_copied_into_an_android_library_directory(self):
+        original = 'x\n' + DESKTOP_STAGING_START + '\nadd_custom_target(lua)\n' + DESKTOP_STAGING_END
+        from scripts.prepare_android_target import patch_desktop_staging
+        changed = patch_desktop_staging(original)
+        self.assertIn('if(NOT ANDROID)\n' + DESKTOP_STAGING_START, changed)
+        self.assertIn('endif() # NOT ANDROID', changed)
+
+    def test_desktop_artwork_staging_excluded_from_android(self):
+        from scripts.prepare_android_target import patch_desktop_artwork
+        source = DESKTOP_ARTWORK_START + '\n  COMMAND echo test\n)\n' + DESKTOP_ARTWORK_END
+        changed = patch_desktop_artwork(source)
+        self.assertIn('if(NOT ANDROID)\n' + DESKTOP_ARTWORK_START, changed)
+        self.assertIn('endif() # NOT ANDROID: desktop app icon/command file', changed)
 
     def test_win_only_diagnostics_guarded(self):
         sample = '#include "fable2_av_probe.h"\n#include "fable2_stall_dump.h"\n'
@@ -41,7 +87,7 @@ class PortOverlayTests(unittest.TestCase):
         self.assertIn('#include "fable2_stall_dump.h"', patched)
 
     def test_refuses_reapplying_an_android_patch(self):
-        sample = patch_app("\n".join([GPU_CONFIG_OLD, PATH_START_OLD, PATH_STORAGE_OLD]))
+        sample = patch_app("\n".join([GPU_CONFIG_OLD, CONFIG_LOAD_OLD, PATH_CONFIG_ORIGINAL, PATH_STORAGE_OLD]))
         with self.assertRaisesRegex(ValueError, "expected one upstream anchor"):
             patch_app(sample)
 
@@ -57,7 +103,7 @@ class PortOverlayTests(unittest.TestCase):
             (src / "src/core").mkdir(parents=True)
             (src / "CMakeLists.txt").write_text(ORIGINAL + "\n" + GPU_ORIGINAL)
             (src / "src/core/fable_2_app.h").write_text("\n".join([
-                GPU_CONFIG_OLD, PATH_START_OLD, PATH_STORAGE_OLD]))
+                GPU_CONFIG_OLD, CONFIG_LOAD_OLD, PATH_CONFIG_ORIGINAL, PATH_STORAGE_OLD]))
             (src / "src/main.cpp").write_text('#include "fable2_av_probe.h"\n#include "fable2_stall_dump.h"\n')
             (src / "default.xex").write_bytes(b"NEVER INCLUDE")
             port = base / "port/android/native"

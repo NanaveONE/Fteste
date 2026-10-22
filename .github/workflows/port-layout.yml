@@ -23,6 +23,7 @@ jobs:
           bash -n scripts/package_android_apk.sh scripts/build_android_native.sh scripts/build_fable_gpu.sh scripts/setup_gpu_dependencies.sh scripts/build_host_tools.sh scripts/attempt_playable_build.sh scripts/device_smoke_test.sh
           python scripts/check_native_libs.py --help
           python scripts/compare_sdk_abi.py --help
+          test -f port/android/java/com/nanaveone/fable2/Fable2GameCompatibility.java
           python scripts/generate_fable_shaders.py --help
           python scripts/gpu_log_report.py --help
           python scripts/prepare_fable_plume.py --help
@@ -41,6 +42,8 @@ jobs:
           grep -n 'add_library(fable_2 SHARED' build/fable2-android-worktree/CMakeLists.txt
           grep -n 'rexglue_setup_target(fable_2)' build/fable2-android-worktree/CMakeLists.txt
           grep -n 'FABLE2_USER_ROOT' build/fable2-android-worktree/src/core/fable_2_app.h
+          grep -n 'fable2::config::Load(settings_dir' build/fable2-android-worktree/src/core/fable_2_app.h
+          grep -n 'endif() # NOT ANDROID: desktop script/Lua staging' build/fable2-android-worktree/CMakeLists.txt
           grep -n 'fable2_touch.cpp' build/fable2-android-worktree/CMakeLists.txt
           grep -n 'generated/default/sources.cmake' build/fable2-android-worktree/CMakeLists.txt
           grep -n 'POSITION_INDEPENDENT_CODE ON' build/fable2-android-worktree/CMakeLists.txt

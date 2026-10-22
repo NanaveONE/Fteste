@@ -198,3 +198,20 @@ com marcador `FABLE2_MISSING_PIPELINE` e respeitando o culling guest por padrão
 A fonte original do submódulo é preservada. O modo sem culling é recuperado via
 `FABLE2_DISABLE_GUEST_CULL=1`. Isso é uma etapa de compatibilidade, não
 uma demonstração de gameplay ou garantia de que a renderização esteja correta.
+
+## Integração 08 — correções após auditoria real do CI
+
+Os builds anteriores falhavam antes de compilar porque `fable_2_app.h` possuía
+**duas** ocorrências de `exe_dir`; agora o patch usa o bloco
+`OnConfigurePaths()` como âncora. Também há escrita de `fable2_config.toml`
+no diretório do aplicativo, não na pasta nativa read-only, e CMake evita
+staging de arquivos auxiliares desktop no build Android.
+
+A importação do jogo valida SHA-256 segundo o catálogo pinado e preserva a
+instalação anterior durante uma importação incompleta. É necessário espaço de
+armazenamento temporário para a nova cópia. Ver `CHANGELOG-08.md`.
+
+**Importante:** a diferença de vtable de `IGraphicsSystem` nos dois forks do
+ReXGlue ainda exige escolher/construir um SDK único e depurar o runtime e a GPU.
+O diagnóstico de ABI agora bloqueia falsos positivos; ele não implementa por
+si só a portabilidade Vulkan de Fable II. Nenhum APK jogável foi validado.
