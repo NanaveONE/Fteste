@@ -40,6 +40,10 @@ for lib in libfable2.so librexruntime.so libc++_shared.so librexgpu-plume.so; do
   }
 done
 
+# Check the GPU plugin's required ReXGlue exported ABI entrypoints, and reject
+# accidental Burnout dependencies before creating/signing the Android package.
+python3 "$root/scripts/check_native_libs.py" "$libdir" --readelf "$readelf"
+
 out="${OUTPUT_DIR:-$root/build/fable2-apk}"
 [[ "$out" != / && "$out" != "$root" ]] || { echo 'Unsafe OUTPUT_DIR' >&2; exit 1; }
 mkdir -p "$out"

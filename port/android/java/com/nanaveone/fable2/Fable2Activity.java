@@ -16,6 +16,7 @@ import org.libsdl.app.SDLActivity;
  */
 public final class Fable2Activity extends SDLActivity {
     private File gameRoot;
+    private Fable2TouchControls virtualPad;
 
     @Override
     protected void onCreate(Bundle state) {
@@ -29,10 +30,28 @@ public final class Fable2Activity extends SDLActivity {
         }
         try {
             Os.setenv("FABLE2_GAME_ROOT", gameRoot.getAbsolutePath(), true);
+            // Saves/cache must be writable and independent of the APK location.
+            File externalRoot = gameRoot.getParentFile();
+            Os.setenv("FABLE2_USER_ROOT", externalRoot.getAbsolutePath(), true);
         } catch (Exception error) {
             Log.w("Fable2Port", "Unable to set FABLE2_GAME_ROOT", error);
         }
         super.onCreate(state);
+        // SDLActivity creates mLayout around SDL's rendering surface.
+        // Attach the Fable-specific virtual SDL gamepad after native libraries load.
+        if (mLayout != null) {
+            virtualPad = new Fable2TouchControls(this);
+            mLayout.addView(virtualPad,
+                    new android.view.ViewGroup.LayoutParams(
+                            android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                            android.view.ViewGroup.LayoutParams.MATCH_PARENT));
+        }
+    }
+
+    @Override
+    protected void onPause() {
+        if (virtualPad != null) virtualPad.releaseAll();
+        super.onPause();
     }
 
     @Override

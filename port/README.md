@@ -79,3 +79,52 @@ are included in this repository.
 `NATIVE_LIB_DIR` (bibliotecas ARM64 reais) devem apontar para pastas locais.
 O APK assinado não comprova que o jogo funciona, e o empacotador não constrói
 as bibliotecas nativas por conta própria.
+
+## Integração 03: runtime, entrada e controles
+
+- O overlay CMake compila `fable_2` como `libfable2.so` para Android e inclui
+  `port/android/native/fable2_touch.cpp` como fonte do jogo.
+- `src/main.cpp` (na cópia local) desativa dois probes de exceção/threads que
+  chamam diretamente a API Win32. Isso **não** prova que os demais arquivos
+  Fable II sejam compatíveis com Android.
+- `src/core/fable_2_app.h` (na cópia local) escolhe `plume` como nome padrão
+  de plugin de GPU no Android, mantém `xenos` no desktop e move saves/cache
+  para a pasta do aplicativo (`FABLE2_USER_ROOT`).
+- `Fable2TouchControls.java` + JNI/SDL3 implementam sticks esquerdo/direito,
+  A/B/X/Y, direcional, gatilhos, botões de ombro, Menu e View com multitouch.
+- `scripts/check_native_libs.py` verifica arquitetura ELF, símbolos públicos
+  `rex_gpu_create` / `rex_gpu_abi_version` e dependências indevidas do Burnout.
+- `scripts/compare_sdk_abi.py` compara ABI público e headers dos SDKs; APIs
+  iguais não garantem que bibliotecas sejam compatíveis em tempo de execução.
+- `scripts/build_android_native.sh` contém a invocação concreta do NDK, mas
+  exige código do jogo local, SDK Android recompilável e codegen **do host**.
+
+### Comandos de preparação
+
+```bash
+cd ~/Fteste
+git submodule update --init --recursive
+python3 -m unittest discover -s tests -v
+python3 scripts/prepare_android_target.py
+```
+
+Para uma tentativa de compilação nativa em máquina Linux com NDK instalado:
+
+```bash
+export ANDROID_NDK_HOME=/caminho/do/ndk
+export FABLE2_GAME_ROOT=/caminho/para/arquivos-extraidos-proprios
+export REXSDK_DIR=/caminho/para/rexglue-sdk-android-compativel
+export FABLE2_CODEGEN_TOOL=/caminho/para/rexglue-host-x86_64
+bash scripts/build_android_native.sh
+```
+
+O build nativo ainda pode falhar porque o SDK usado pelo Fable II requer
+portabilidade para Android e o Plume do Xerenge não suporta automaticamente
+os comandos/shaders de Fable II. **Sem um plugin GPU adaptado e bibliotecas
+compiladas, não existe APK jogável.**
+
+### Licenças
+
+O código de joystick virtual deriva da implementação de referência SDL3
+do Xerenge e está identificado como GPL-3.0-or-later; ao redistribuí-lo,
+cumpra a GPL e preserve as licenças dos demais componentes.
