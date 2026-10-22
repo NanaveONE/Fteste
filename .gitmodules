@@ -1,0 +1,6 @@
+[submodule "external/Xerenge"]
+	path = external/Xerenge
+	url = https://github.com/shipa-2/Xerenge.git
+[submodule "external/Fable-2-Recomp"]
+	path = external/Fable-2-Recomp
+	url = https://github.com/himdo/Fable-2-Recomp.git
