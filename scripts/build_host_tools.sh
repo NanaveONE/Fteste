@@ -3,7 +3,7 @@
 # Does NOT download or include Fable II assets, and does not build an APK.
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
-for tool in cmake ninja clang clang++ python3; do
+for tool in cmake ninja clang clang++ clang-19 clang++-19 python3; do
   command -v "$tool" >/dev/null || { echo "BLOCKED: missing host tool $tool" >&2; exit 2; }
 done
 [[ "$(uname -s)" == Linux && "$(uname -m)" == x86_64 ]] || {
@@ -44,13 +44,25 @@ cmake -S "$xenos" -B "$xenos_build" -G Ninja -DCMAKE_BUILD_TYPE=Release \
 cmake --build "$xenos_build" --target XenosRecomp --parallel "${BUILD_JOBS:-2}"
 
 # Linux ReXGlue codegen is a HOST binary; Android NDK binaries cannot run on x86_64.
-cmake --preset linux-amd64 -S "$sdk"
+# clang++ 18 lacks the __cpp_concepts level required by libstdc++ <expected>.
+python3 "$root/scripts/check_fable_codegen_cpp23.py" --cc clang-19 --cxx clang++-19
+cmake --preset linux-amd64 -S "$sdk" \
+  -DCMAKE_C_COMPILER=/usr/bin/clang-19 \
+  -DCMAKE_CXX_COMPILER=/usr/bin/clang++-19
+# Avoid silently reusing a cached LLVM 18 compiler from a previous build.
+grep -Eq '^CMAKE_CXX_COMPILER:(FILEPATH|STRING)=/usr/bin/clang\+\+-19$' \
+  "$sdk/out/build/linux-amd64/CMakeCache.txt" || {
+    echo 'BLOCKED: the Linux ReXGlue CMake cache is not configured for Clang 19' >&2
+    echo 'Move aside the old sdk/out/build/linux-amd64 cache and retry.' >&2
+    exit 2
+  }
 cmake --build "$sdk/out/build/linux-amd64" --config Release --target rexglue --parallel "${BUILD_JOBS:-2}"
 
-# Ninja Multi-Config places executables under the binary directory; never
-# assume they are copied to a different out/linux-amd64 staging folder.
-mapfile -t codegen_candidates < <(find "$sdk/out/build/linux-amd64" -type f -name rexglue \
-  -path '*/Release/*' -print | sort)
+# Upstream CMakeLists.txt sets CMAKE_RUNTIME_OUTPUT_DIRECTORY to
+# "${REXGLUE_ROOT}/out/${REX_PLATFORM}", i.e. out/linux-amd64/Release
+# with Ninja Multi-Config. Looking under out/build/... alone loses the binary.
+mapfile -t codegen_candidates < <(find "$sdk/out/linux-amd64" -maxdepth 3 -type f \
+  -name rexglue -path '*/Release/*' -print | sort)
 if [[ "${#codegen_candidates[@]}" != 1 ]]; then
   printf 'BLOCKED: expected one Release host rexglue executable, found %s\n' "${#codegen_candidates[@]}" >&2
   printf '%s\n' "${codegen_candidates[@]}" >&2
@@ -62,6 +74,7 @@ dumper="$tools_build/dump_xex_image"
 for exe in "$host_codegen" "$translator" "$dumper"; do
   [[ -x "$exe" ]] || { echo "BLOCKED: host tool not executable: $exe" >&2; exit 2; }
 done
+"$host_codegen" --version
 # Print reusable exports without writing them to GitHub.
 printf '\nHost tools generated. Export these for the next steps:\n'
 printf 'export FABLE2_CODEGEN_TOOL=%q\n' "$host_codegen"
