@@ -28,6 +28,11 @@ grep -q 'Fable II silent audio completion permit failed' \
   "$sdk/src/audio/sdl/sdl_audio_driver.cpp" || {
     echo 'BLOCKED: Fable Android audio fallback not applied to the SDK source' >&2; exit 2;
   }
+# The Android NDK r27 libc++ does not implement floating std::from_chars.
+# Reuse the upstream Mac C-locale fallback on Android API 31 as well.
+# This modifies only the ignored SDK clone in build/deps, not the submodule.
+python3 "$root/scripts/patch_android_float_from_chars.py" --sdk "$sdk" --root "$root"
+python3 "$root/scripts/patch_android_float_from_chars.py" --sdk "$sdk" --root "$root" --check
 python3 "$root/scripts/audit_android_sdk.py" --sdk "$sdk" \
   --json "$root/build/rexglue-android-sdk-audit.json"
 build="$root/build/rexglue-android-arm64"
