@@ -1,0 +1,53 @@
+name: Compilar ReXGlue codegen Linux (sem arquivos de jogo)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  codegen-linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Instalar compilador e dependencias publicas
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y clang cmake ninja-build patchelf pkg-config python3 \
+            libvulkan-dev libx11-dev libxext-dev libxi-dev libxrandr-dev \
+            libxcursor-dev libxinerama-dev libxkbcommon-dev libwayland-dev \
+            libasound2-dev libpulse-dev libudev-dev libdbus-1-dev
+          mkdir -p build/deps
+          git clone --depth 1 --recurse-submodules \
+            https://github.com/shipa-2/rexglue-xerenge.git \
+            build/deps/rexglue-xerenge
+          git -C build/deps/rexglue-xerenge submodule update --init --recursive
+      - name: Compilar gerador de codigo PPC para host Linux x86_64
+        run: |
+          sdk="$GITHUB_WORKSPACE/build/deps/rexglue-xerenge"
+          cmake --preset linux-amd64 -S "$sdk" \
+            -DREXGLUE_ENABLE_TRACY=OFF -DREXGLUE_ENABLE_PERF_COUNTERS=OFF
+          cmake --build "$sdk/out/build/linux-amd64" --config Release \
+            --target rexglue --parallel 2
+      - name: Verificar ELF, dependencias e empacotar ferramenta host
+        run: |
+          python3 scripts/package_fable_codegen_host.py \
+            --sdk build/deps/rexglue-xerenge \
+            --output build/artifacts/fable2-codegen-linux
+          test -x build/artifacts/fable2-codegen-linux/rexglue
+          build/artifacts/fable2-codegen-linux/rexglue --version
+          build/artifacts/fable2-codegen-linux/rexglue codegen --help
+      - name: Publicar gerador de codigo open-source
+        uses: actions/upload-artifact@v4
+        with:
+          name: fable2-rexglue-codegen-linux-x86_64
+          path: build/artifacts/fable2-codegen-linux/
+          if-no-files-found: error
+      - name: Resumo
+        if: always()
+        run: |
+          echo 'Workflow gera APENAS o executavel Linux do ReXGlue codegen.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Nao acessa default.xex, bancos SBK, pasta data/ ou codigo gerado do jogo.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Ainda nao compila libfable2.so nem APK Android.' >> "$GITHUB_STEP_SUMMARY"
