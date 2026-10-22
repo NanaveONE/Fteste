@@ -27,6 +27,12 @@ actual = hashlib.sha256(Path(sys.argv[2]).read_bytes()).hexdigest()
 if report.get('source_title') != 'Fable II' or report.get('cache_sha256') != actual:
     raise SystemExit('BLOCKED: shader cache provenance mismatch')
 PY
+# A valid provenance hash does not prove SPIR-V was generated. Check that
+# every static container in the private extraction has a valid SPIR-V module.
+python3 "$root/scripts/validate_xenosrecomp_cache.py" \
+  --cache "$shader_cache" --scan-dir "$shader_dir/xenos-scan" \
+  --min-coverage 1.0 --report "$shader_dir/spirv-coverage-report.json"
+
 # Refuse Windows-only SDKs before an expensive Plume cross build. The exact
 # same Android SDK checkout must be supplied to build_android_native.sh.
 python3 "$root/scripts/audit_android_sdk.py" --sdk "$REXSDK_DIR" \

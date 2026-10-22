@@ -1,0 +1,67 @@
+name: Compilar XenosRecomp Linux DXC (sem arquivos de jogo)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  translator-host:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+      - name: Preparar compilador e dependencias publicas
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y clang ninja-build cmake patchelf git-lfs
+          mkdir -p build/deps build/xenos-artifact
+          git clone --depth 1 --recurse-submodules \
+            https://github.com/shipa-2/XenosRecomp-xerenge.git \
+            build/deps/XenosRecomp-xerenge
+          git -C build/deps/XenosRecomp-xerenge submodule update --init --recursive
+          git -C build/deps/XenosRecomp-xerenge/thirdparty/dxc-bin lfs pull || true
+      - name: Compilar tradutor oficial REAL com DXC
+        run: |
+          cmake -S build/deps/XenosRecomp-xerenge -B build/xenos-host -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang \
+            -DCMAKE_CXX_COMPILER=clang++
+          cmake --build build/xenos-host --target XenosRecomp --parallel 2
+          test -x build/xenos-host/XenosRecomp/XenosRecomp
+      - name: Empacotar apenas compilador e bibliotecas publicas
+        run: |
+          cp build/xenos-host/XenosRecomp/XenosRecomp build/xenos-artifact/XenosRecomp
+          cp build/deps/XenosRecomp-xerenge/XenosRecomp/shader_common.h \
+            build/xenos-artifact/shader_common.h
+          python3 - <<'PY'
+          import pathlib, re, shutil, subprocess
+          root = pathlib.Path('build/xenos-artifact')
+          binary = pathlib.Path('build/xenos-host/XenosRecomp/XenosRecomp')
+          deps = subprocess.run(['ldd', str(binary)], text=True, capture_output=True, check=True).stdout
+          print(deps)
+          if 'not found' in deps:
+              raise SystemExit('BLOCKED: unresolved library in host XenosRecomp')
+          dxcompiler = []
+          for line in deps.splitlines():
+              if 'dxcompiler' not in line.lower():
+                  continue
+              match = re.search(r'=>\s*(/\S+)', line)
+              if match:
+                  dxcompiler.append(pathlib.Path(match.group(1)))
+          if not dxcompiler:
+              raise SystemExit('BLOCKED: DXC runtime dependency not identified by ldd')
+          for source in dxcompiler:
+              if not source.is_file():
+                  raise SystemExit(f'BLOCKED: missing {source}')
+              shutil.copy2(source, root / source.name)
+          PY
+          patchelf --set-rpath '$ORIGIN' build/xenos-artifact/XenosRecomp
+          test -s build/xenos-artifact/XenosRecomp
+          echo "Public XenosRecomp tool; requires your own private Fable II .sbk files." > build/xenos-artifact/README.txt
+      - name: Publicar tradutor Linux sem dados comerciais
+        uses: actions/upload-artifact@v4
+        with:
+          name: XenosRecomp-Linux-x86_64-DXC
+          path: build/xenos-artifact/
+          if-no-files-found: error

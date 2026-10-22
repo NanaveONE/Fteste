@@ -72,6 +72,12 @@ else
     --translator "$FABLE2_SHADER_TRANSLATOR" \
     --header "${FABLE2_SHADER_HEADER:-$XENOS_RECOMP_ROOT/XenosRecomp/shader_common.h}"
 fi
+# XenosRecomp may return exit status 0 even after skipping unsupported shaders.
+# Audit EVERY generated SPIR-V module and require coverage of every private
+# static SBK container before attempting ARM64 build. Reject stale caches too.
+python3 "$root/scripts/validate_xenosrecomp_cache.py" \
+  --cache "$shader_dir/shader_cache.cpp" --scan-dir "$shader_dir/xenos-scan" \
+  --min-coverage 1.0 --report "$shader_dir/spirv-coverage-report.json"
 # Keep the host/game/plugin on exactly one Android source SDK; do not use a
 # prebuilt Windows Fable runtime even when its numeric plugin ABI matches.
 if [[ -z "${REXRUNTIME_LIB:-}" ]]; then
