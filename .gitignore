@@ -10,3 +10,15 @@
 /data/
 __pycache__/
 *.pyc
+
+# Never commit compiled native binaries, dumped guest shaders or game assets
+*.so
+*.spv
+*.hlsl
+*.xma
+*.wem
+**/default.xex
+**/game/
+**/data/
+**/generated/xenos-scan/
+**/generated/shader_cache*.cpp

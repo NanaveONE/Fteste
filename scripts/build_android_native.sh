@@ -22,6 +22,11 @@ done
 [[ -d "$REXSDK_DIR/include/rex" && -x "$FABLE2_CODEGEN_TOOL" ]] || {
     echo 'SDK tree or executable host ReXGlue code generator missing' >&2; exit 1;
 }
+# The codegen is invoked after changing into the isolated source tree.
+# Resolve relative user paths now to avoid resolving them inside build/.
+FABLE2_CODEGEN_TOOL="$(realpath "$FABLE2_CODEGEN_TOOL")"
+REXSDK_DIR="$(realpath "$REXSDK_DIR")"
+FABLE2_GAME_ROOT="$(realpath "$FABLE2_GAME_ROOT")"
 
 work="$root/build/fable2-android-worktree"
 if [[ ! -f "$work/CMakeLists.txt" ]]; then
@@ -31,14 +36,40 @@ fi
 
 # Codegen and Fable's Lua staging operate on the *worktree*, never on the
 # original game dump. Keep copies in ignored build/ to avoid mutating content.
-[[ ! -e "$work/default.xex" ]] || {
-    echo 'Worktree already contains default.xex; remove manually before regenerating' >&2; exit 1;
-}
-cp -- "$FABLE2_GAME_ROOT/default.xex" "$work/default.xex"
+if [[ -f "$work/default.xex" ]]; then
+    cmp -s -- "$FABLE2_GAME_ROOT/default.xex" "$work/default.xex" || {
+        echo 'BLOCKED: another XEX exists in worktree. Refusing to mix game versions.' >&2; exit 2;
+    }
+else
+    cp -- "$FABLE2_GAME_ROOT/default.xex" "$work/default.xex"
+fi
 mkdir -p "$work/data"
 if [[ -f "$FABLE2_GAME_ROOT/data/dir.manifest" ]]; then
     cp -- "$FABLE2_GAME_ROOT/data/dir.manifest" "$work/data/dir.manifest"
 fi
+
+# The upstream generated/rexglue.cmake includes sources.cmake only at
+# CONFIGURE time. Run host codegen before CMake, otherwise the Fable guest
+# object library would not exist and an empty launcher could be packaged.
+# Generate on each invocation to fail fast when guest inputs are wrong.
+echo '[codegen] Generating Fable II guest sources on the build host'
+(cd "$work" && "$FABLE2_CODEGEN_TOOL" codegen "$work/fable_2_manifest.toml")
+sources_index="$work/generated/default/sources.cmake"
+[[ -s "$sources_index" ]] || { echo 'BLOCKED: ReXGlue did not generate sources.cmake' >&2; exit 2; }
+# Fail closed if the input contains a bogus empty list.
+python3 - "$sources_index" <<'PYCODEGEN'
+from pathlib import Path
+import re, sys
+text = Path(sys.argv[1]).read_text(encoding='utf-8')
+if not re.search(r'set\s*\(\s*GENERATED_SOURCES\b', text, re.I) or not re.search(r'\.cpp\b', text):
+    sys.exit('BLOCKED: sources.cmake contains no generated guest .cpp files')
+PYCODEGEN
+
+# The game target and recompilation object library both use this SDK checkout;
+# the GPU plugin must use the same checkout and revision too.
+python3 "$root/scripts/audit_android_sdk.py" --sdk "$REXSDK_DIR" \
+    --fable-sdk "$root/external/Fable-2-Recomp/thirdparty/rexglue-sdk" \
+    --json "$root/build/android-sdk-audit.json"
 
 build="$root/build/fable2-android-arm64"
 cmake -S "$work" -B "$build" -G Ninja \

@@ -25,6 +25,8 @@ jobs:
           python scripts/compare_sdk_abi.py --help
           python scripts/generate_fable_shaders.py --help
           python scripts/gpu_log_report.py --help
+          python scripts/audit_android_sdk.py --help
+          python scripts/stage_android_libs.py --help
           test -f port/gpu/CMakeLists.txt
       - name: Conferir geracao do CMake Android em copia local
         run: |
@@ -33,6 +35,9 @@ jobs:
           grep -n 'rexglue_setup_target(fable_2)' build/fable2-android-worktree/CMakeLists.txt
           grep -n 'FABLE2_USER_ROOT' build/fable2-android-worktree/src/core/fable_2_app.h
           grep -n 'fable2_touch.cpp' build/fable2-android-worktree/CMakeLists.txt
+          grep -n 'generated/default/sources.cmake' build/fable2-android-worktree/CMakeLists.txt
+          grep -n 'POSITION_INDEPENDENT_CODE ON' build/fable2-android-worktree/CMakeLists.txt
+          grep -n 'FABLE2_CODEGEN_TOOL.* codegen' scripts/build_android_native.sh
       - name: Resumo
         if: always()
         run: |

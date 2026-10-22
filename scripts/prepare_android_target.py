@@ -21,6 +21,11 @@ REPLACEMENT = """if(ANDROID)
     if(NOT FABLE2_PORT_ROOT OR NOT EXISTS "${FABLE2_PORT_ROOT}/android/native/fable2_touch.cpp")
         message(FATAL_ERROR "Set -DFABLE2_PORT_ROOT to the absolute Fteste/port path")
     endif()
+    # Guest sources must exist at configure time, or the app would be built
+    # with NO recompiled Fable II code. Generate before running CMake.
+    if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/generated/default/sources.cmake")
+        message(FATAL_ERROR "Fable II guest source list missing: run the host ReXGlue codegen first")
+    endif()
     # Fable guest recompilation is linked into an SDL-loaded Android library.
     list(APPEND FABLE2_SOURCES
         ${FABLE2_PORT_ROOT}/android/native/fable2_touch.cpp)
@@ -38,6 +43,12 @@ GPU_REPLACEMENT = """if(ANDROID)
     # shader data. Do not ask ReXGlue's SDK stage step for a nonexistent
     # stock GPU plugin: it only knows its own prebuilt backends.
     rexglue_setup_target(fable_2)
+    # The generated guest object library is linked into libfable2.so.
+    # Android/aarch64 shared libraries require position-independent code.
+    if(NOT TARGET fable_2_recomp)
+        message(FATAL_ERROR "Codegen provided no fable_2_recomp target; refusing a launcher-only build")
+    endif()
+    set_target_properties(fable_2_recomp PROPERTIES POSITION_INDEPENDENT_CODE ON)
 else()
     rexglue_setup_target(fable_2 GPU_PLUGINS xenos)
 endif()"""

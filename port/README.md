@@ -139,3 +139,18 @@ O overlay Android não pede mais `GPU_PLUGINS plume` ao SDK como se o SDK já di
 4. Estude os relatórios de `scripts/gpu_log_report.py` e corrija os comandos GPU que ainda falharem.
 
 **Atenção:** shader scan é somente uma etapa; não supre shaders montados em tempo de execução, recursos de GPU específicos do Fable II ou testes de gameplay. Não existe APK jogável validado nesta etapa.
+
+## Integração 05: impedir bibliotecas sem jogo e fechar dependências
+
+- O gerador host ReXGlue agora roda **antes** da configuração CMake Android.
+  Se não existir `generated/default/sources.cmake` com fontes guest `.cpp`, a
+  compilação para: não entrega uma biblioteca que contenha só o launcher.
+- O SDK selecionado precisa fornecer `SDL_main` e arquivos nativos Android;
+  `python3 scripts/audit_android_sdk.py --sdk /SDK-ANDROID` registra o relatório.
+- `python3 scripts/stage_android_libs.py --help` mostra como reunir as bibliotecas
+  ARM64 realmente compiladas e fechar `DT_NEEDED`. Dependências apenas via
+  `dlopen` precisam ser incluídas explicitamente com `--extra-lib`.
+- O APK só deve ser empacotado após validar `build/android-native-stage/`.
+
+Consulte `CHANGELOG-05.md` para o fluxo completo. Nenhuma destas verificações
+substitui compilar e executar o jogo no celular.

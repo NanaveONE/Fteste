@@ -15,7 +15,9 @@ class PortOverlayTests(unittest.TestCase):
         self.assertIn(REPLACEMENT, result)
         self.assertIn(GPU_REPLACEMENT, result)
         self.assertIn("fable2_touch.cpp", result)
-        self.assertIn("rexglue_setup_target(fable_2)\nelse()", result)
+        self.assertIn("rexglue_setup_target(fable_2)", result)
+        self.assertIn('NOT TARGET fable_2_recomp', result)
+        self.assertIn('generated/default/sources.cmake', result)
         self.assertIn("GPU_PLUGINS xenos", result)
 
     def test_fails_closed_when_upstream_cmake_changed(self):
@@ -65,7 +67,7 @@ class PortOverlayTests(unittest.TestCase):
             changed = prepare(src, worktree, base / "port")
             self.assertEqual(len(changed), 3)
             self.assertIn('GPU_PLUGINS xenos', (src / 'CMakeLists.txt').read_text())
-            self.assertIn('rexglue_setup_target(fable_2)\nelse()', (worktree / 'CMakeLists.txt').read_text())
+            self.assertIn('rexglue_setup_target(fable_2)', (worktree / 'CMakeLists.txt').read_text())
             self.assertFalse((worktree / 'default.xex').exists())
             with self.assertRaisesRegex(ValueError, 'already exists'):
                 prepare(src, worktree, base / 'port')

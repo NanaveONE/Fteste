@@ -27,6 +27,12 @@ actual = hashlib.sha256(Path(sys.argv[2]).read_bytes()).hexdigest()
 if report.get('source_title') != 'Fable II' or report.get('cache_sha256') != actual:
     raise SystemExit('BLOCKED: shader cache provenance mismatch')
 PY
+# Refuse Windows-only SDKs before an expensive Plume cross build. The exact
+# same Android SDK checkout must be supplied to build_android_native.sh.
+python3 "$root/scripts/audit_android_sdk.py" --sdk "$REXSDK_DIR" \
+  --fable-sdk "$root/external/Fable-2-Recomp/thirdparty/rexglue-sdk" \
+  --json "$root/build/android-sdk-audit.json"
+
 build="$root/build/fable2-gpu-android-arm64"
 cmake -S "$root/port/gpu" -B "$build" -G Ninja \
   -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake" \
