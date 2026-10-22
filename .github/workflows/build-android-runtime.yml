@@ -12,7 +12,12 @@ jobs:
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
-      - uses: android-actions/setup-android@v3
+      - name: Preparar Android SDK sem pacote legado tools
+        uses: android-actions/setup-android@v3
+        with:
+          # O padrao da action e 'tools platform-tools'; 'tools' nao existe
+          # mais no repositorio SDK atual e bloqueia o job antes do CMake.
+          packages: platform-tools
       - name: Instalar ferramentas e Android NDK
         run: |
           sudo apt-get update -qq
