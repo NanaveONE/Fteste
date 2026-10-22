@@ -17,6 +17,11 @@ import shutil
 import sys
 from typing import Mapping
 
+try:
+    from scripts.find_fable_shader_banks import locate as locate_shader_banks
+except ModuleNotFoundError:  # executed directly by path
+    from find_fable_shader_banks import locate as locate_shader_banks
+
 
 def audit(root: Path, env: Mapping[str, str], *, check_host: bool = True) -> dict:
     root = root.resolve()
@@ -65,6 +70,13 @@ def audit(root: Path, env: Mapping[str, str], *, check_host: bool = True) -> dic
     game_root = Path(env['FABLE2_GAME_ROOT']).expanduser() if env.get('FABLE2_GAME_ROOT') else None
     require_file('private game default.xex', game_root / 'default.xex' if game_root else None)
     require_dir('private game data/', game_root / 'data' if game_root else None)
+    if game_root and (game_root / 'data').is_dir():
+        try:
+            banks = locate_shader_banks(game_root)
+            passed.append(f'Fable II SBK shader banks: {len(banks)}')
+        except ValueError as err:
+            failures.append({'requirement': 'Fable II SBK shader banks',
+                             'reason': str(err)})
     selected_profile: str | None = None
     if game_root and (game_root / 'default.xex').is_file():
         xex = game_root / 'default.xex'
@@ -115,7 +127,7 @@ def audit(root: Path, env: Mapping[str, str], *, check_host: bool = True) -> dic
     xenos = Path(env['XENOS_RECOMP_ROOT']).expanduser() if env.get('XENOS_RECOMP_ROOT') else root / 'build/deps/XenosRecomp-xerenge'
     require_file('XenosRecomp shader header', xenos / 'XenosRecomp/shader_common.h')
     require_file('XenosRecomp translator', env.get('FABLE2_SHADER_TRANSLATOR'), executable=True)
-    require_file('Xerenge XEX host tool', env.get('FABLE2_XEX_DUMPER'), executable=True)
+    # Static shader generation now consumes SBKs: the XEX dumper is optional.
     sdk_home = Path(env['ANDROID_HOME']).expanduser() if env.get('ANDROID_HOME') else None
     require_dir('Android SDK build-tools/', sdk_home / 'build-tools' if sdk_home else None)
     require_dir('Android SDK platforms/', sdk_home / 'platforms' if sdk_home else None)

@@ -56,6 +56,8 @@ class RealBuildGateTests(unittest.TestCase):
             'rejectFiles': ['data/tu1_data.bnk'],
         }]}), encoding='utf-8')
         (game / 'data').mkdir(exist_ok=True)
+        (game / 'data/Shaders').mkdir()
+        (game / 'data/Shaders/ShadersRelease.sbk').write_bytes(b'fixture; parsed separately')
         (android_home / 'build-tools').mkdir(parents=True)
         (android_home / 'platforms').mkdir()
         (sdk / 'thirdparty/sdl3/android-project/app/src/main/java').mkdir(parents=True)

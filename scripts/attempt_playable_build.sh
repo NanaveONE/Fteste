@@ -13,7 +13,7 @@ Usage: bash scripts/attempt_playable_build.sh --check | --build
 Linux x86_64 + clang, cmake, ninja, JDK, Android SDK/NDK required.
 Required env: FABLE2_GAME_ROOT, ANDROID_NDK_HOME, ANDROID_HOME,
   REXSDK_DIR, PLUME_ROOT, XENOS_RECOMP_ROOT, FABLE2_CODEGEN_TOOL,
-  FABLE2_SHADER_TRANSLATOR, FABLE2_XEX_DUMPER.
+  FABLE2_SHADER_TRANSLATOR; SBK shader files in data/shaders are required.
 Optional: SDL_JAVA_DIR, FABLE2_SHADER_HEADER, REXRUNTIME_LIB,
   FABLE2_LIBRARY_SEARCH_DIRS (colon-separated), FABLE2_EXTRA_LIBS (colon-separated), BUILD_JOBS.
 
@@ -36,29 +36,39 @@ python3 "$root/scripts/playable_preflight.py" --json "$root/build/playable-prefl
 : "${XENOS_RECOMP_ROOT:?}"
 : "${FABLE2_CODEGEN_TOOL:?}"
 : "${FABLE2_SHADER_TRANSLATOR:?}"
-: "${FABLE2_XEX_DUMPER:?}"
+# Fable II shaders reside in data/shaders/*.sbk, not default.xex.
+# Use both banks when present; containers are deduplicated by SHA-256.
 shader_dir="$root/build/fable2-shaders"
+mapfile -d '' -t shader_banks < <(python3 "$root/scripts/find_fable_shader_banks.py" \
+  --game-root "$FABLE2_GAME_ROOT" --print0)
+if [[ ${#shader_banks[@]} -eq 0 ]]; then
+  echo 'BLOCKED: Fable II .sbk shader banks missing from data/shaders/' >&2
+  exit 2
+fi
 if [[ -e "$shader_dir" ]]; then
-  # Do not silently reuse a cache from a different XEX/build attempt.
-  python3 - "$FABLE2_GAME_ROOT/default.xex" "$shader_dir" <<'PY'
+  # A cache is trusted only if every original private SBK still matches.
+  python3 - "$shader_dir" "${shader_banks[@]}" <<'PYSBKVERIFY'
 import hashlib, json, sys
 from pathlib import Path
-xex, folder = map(Path, sys.argv[1:])
+folder = Path(sys.argv[1]); banks = list(map(Path, sys.argv[2:]))
 report_file = folder / 'fable-shader-report.json'
 cache = folder / 'shader_cache.cpp'
 if not report_file.is_file() or not cache.is_file():
-    raise SystemExit('BLOCKED: partial shader cache exists. Move build/fable2-shaders aside before retrying.')
+    raise SystemExit('BLOCKED: partial shader cache; move aside after inspection')
 report = json.loads(report_file.read_text(encoding='utf-8'))
-if report.get('source_title') != 'Fable II' or report.get('input_sha256') != hashlib.sha256(xex.read_bytes()).hexdigest() \
-   or report.get('cache_sha256') != hashlib.sha256(cache.read_bytes()).hexdigest():
-    raise SystemExit('BLOCKED: shader cache belongs to different game input or was modified.')
-print('OK: existing shader cache matches the game XEX')
-PY
+recorded = {bank['filename'].casefold(): bank['sha256']
+            for bank in report.get('shader_banks', [])}
+actual = {bank.name.casefold(): hashlib.sha256(bank.read_bytes()).hexdigest()
+          for bank in banks}
+if report.get('source_title') != 'Fable II' or report.get('input_kind') != 'shader_banks' \
+   or not actual or recorded != actual or report.get('cache_sha256') != hashlib.sha256(cache.read_bytes()).hexdigest():
+    raise SystemExit('BLOCKED: shader cache provenance differs from local Fable II banks')
+print('OK: existing static shader cache matches original SBK inputs')
+PYSBKVERIFY
 else
   python3 "$root/scripts/generate_fable_shaders.py" \
-    --game-xex "$FABLE2_GAME_ROOT/default.xex" \
+    --shader-banks "${shader_banks[@]}" \
     --output "$shader_dir" \
-    --xex-dumper "$FABLE2_XEX_DUMPER" \
     --translator "$FABLE2_SHADER_TRANSLATOR" \
     --header "${FABLE2_SHADER_HEADER:-$XENOS_RECOMP_ROOT/XenosRecomp/shader_common.h}"
 fi
@@ -79,15 +89,17 @@ bash "$root/scripts/build_android_native.sh"
 # and rebuilt into the Plume plugin with the Bootstrap symbol set.
 runtime_shaders="$root/build/fable2-runtime-shaders"
 if [[ -d "$runtime_shaders" ]]; then
-  python3 - "$runtime_shaders" "$shader_dir" <<'PYRUNTIME'
+  : "${FABLE2_DECODED_GUEST_IMAGE:?Required to verify runtime shader captures against your decoded Fable II XEX}"
+  python3 - "$runtime_shaders" "$FABLE2_DECODED_GUEST_IMAGE" <<'PYRUNTIME'
 from pathlib import Path
 import json, hashlib, sys
-runtime, static = map(Path, sys.argv[1:])
+runtime, guest_image = map(Path, sys.argv[1:])
 report = json.loads((runtime / 'runtime-shader-report.json').read_text())
-main = json.loads((static / 'fable-shader-report.json').read_text())
+if not guest_image.is_file():
+    raise SystemExit('BLOCKED: decoded XEX image missing for runtime capture verification')
 cache = runtime / 'shader_cache_runtime.cpp'
 if not cache.is_file() or report.get('shader_cache_sha256') != hashlib.sha256(cache.read_bytes()).hexdigest() \
-   or report.get('guest_image_sha256') != main.get('guest_image_sha256'):
+   or report.get('guest_image_sha256') != hashlib.sha256(guest_image.read_bytes()).hexdigest():
     raise SystemExit('BLOCKED: stale or mixed runtime shader cache')
 print('OK: linking Fable II runtime-captured shaders into Plume')
 PYRUNTIME

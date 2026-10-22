@@ -25,6 +25,8 @@ jobs:
           python scripts/compare_sdk_abi.py --help
           test -f port/android/java/com/nanaveone/fable2/Fable2GameCompatibility.java
           python scripts/generate_fable_shaders.py --help
+          python scripts/extract_fable_sbk.py --help
+          python scripts/find_fable_shader_banks.py --help
           python scripts/compile_fable_runtime_shaders.py --help
           python scripts/merge_fable_shader_sources.py --help
           python scripts/port_fable_audio_sdk.py --help

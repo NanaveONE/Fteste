@@ -225,3 +225,18 @@ A captura de shaders em tempo de execução pode ser ativada por uma opção de 
 **Limitações persistentes:** o runtime livre ainda precisa passar no workflow real; gerar/compilar código recompilado do Fable II, reconciliar outras correções SDK específicas do título, suportar EDRAM/resolves de Fable II e conseguir gameplay no aparelho continuam pendentes. Não marcar recursos como jogáveis até serem demonstrados.
 
 Leia `CHANGELOG-09.md` e `docs/ANDROID-RUNTIME-BUILD-09.md` para comandos e dependências.
+
+## Integração 10: ShaderBankFile SBK do Fable II
+
+O scanner de `default.xex` era insuficiente: o conteúdo original inclui
+`data/Shaders/Shaders.sbk` e `ShadersRelease.sbk`. A ferramenta
+`scripts/extract_fable_sbk.py` lê diretamente os bancos **no computador do
+proprietário**, descomprime os blocos zlib e extrai contêineres Xenos que o
+XenosRecomp conhece. A edição GOTY examinada tem 588 shaders (137 VS + 451 PS)
+em cada banco, com o mesmo conjunto de contêineres. Veja `CHANGELOG-10.md`.
+
+Quando os arquivos estiverem na pasta `FABLE2_GAME_ROOT/data/Shaders`, a
+cadeia `scripts/attempt_playable_build.sh --build` escolhe automaticamente os
+SBKs, deduplica o conteúdo e tenta gerar o cache Vulkan com XenosRecomp. Isso
+não substitui shaders criados em execução ou a portabilidade de GPU/EDRAM.
+**NUNCA comite os `.sbk`, contêineres extraídos, dumps ou dados do jogo.**
