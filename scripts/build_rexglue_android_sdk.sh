@@ -33,6 +33,9 @@ grep -q 'Fable II silent audio completion permit failed' \
 # This modifies only the ignored SDK clone in build/deps, not the submodule.
 python3 "$root/scripts/patch_android_float_from_chars.py" --sdk "$sdk" --root "$root"
 python3 "$root/scripts/patch_android_float_from_chars.py" --sdk "$sdk" --root "$root" --check
+# NDK r27 libc++ lacks std::jthread/stop_token; keep original host code.
+python3 "$root/scripts/patch_android_timer_thread.py" --sdk "$sdk" --root "$root"
+python3 "$root/scripts/patch_android_timer_thread.py" --sdk "$sdk" --root "$root" --check
 python3 "$root/scripts/audit_android_sdk.py" --sdk "$sdk" \
   --json "$root/build/rexglue-android-sdk-audit.json"
 build="$root/build/rexglue-android-arm64"
