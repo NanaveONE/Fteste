@@ -7,6 +7,11 @@ ANDROID = "{http://schemas.android.com/apk/res/android}"
 
 
 class AndroidLauncherTests(unittest.TestCase):
+    def test_launcher_requires_gpu_plugin(self):
+        from pathlib import Path
+        script = (Path(__file__).parents[1] / "port/android/java/com/nanaveone/fable2/Fable2LauncherActivity.java").read_text()
+        self.assertIn('"librexgpu-plume.so"', script)
+
     def test_launcher_and_game_activities_are_distinct(self):
         root = ET.parse(ROOT / "port/android/AndroidManifest.xml").getroot()
         activities = root.findall("application/activity")

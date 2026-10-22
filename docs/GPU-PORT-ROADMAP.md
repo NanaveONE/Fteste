@@ -42,3 +42,11 @@ native libraries. They do NOT verify game rendering or performance.
 Xerenge is published under GPL-3.0-or-later; Fable-2-Recomp identifies MIT.
 Review all dependency notices before distribution. Redistribution of
 proprietary Fable II binaries and assets is out of scope.
+
+## Integração 04 — plugin separado e cache de Fable II
+
+Foi adicionado `port/gpu/CMakeLists.txt` para construir o plugin Plume dos arquivos do Xerenge usando *cache de shaders do Fable II* gerado por `scripts/generate_fable_shaders.py`. Isso permite avançar na tradução gráfica sem embutir o código de Burnout no executável do jogo. **Não** prova compatibilidade de renderização.
+
+O `dump_xex_image` usado pelo Xerenge atualmente só reconhece XEX com compressão BASIC; se a edição do Fable II utilizar outro formato, a etapa de extração pode falhar. O script aceita imagem já decodificada por um método legítimo como alternativa.
+
+A próxima verificação deve ocorrer com GPU plugin e jogo compilados com **a mesma revisão do SDK**. Executar e ler `gpu_log_report.py` mostrará os shaders e comandos que precisam de suporte adicional. Também é necessário confirmar `SDL_main`, memória convidada, e validação de EDRAM, texturas e estados do Fable II.

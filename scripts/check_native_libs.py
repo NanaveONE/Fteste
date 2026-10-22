@@ -32,6 +32,7 @@ def check(directory: Path, readelf: str) -> list[str]:
     for old in UNWANTED:
         if (directory / old).exists():
             errors.append(f"Unrelated Burnout library must not be packaged: {old}")
+    sdl_entry_found = False
     for lib in REQUIRED:
         path = directory / lib
         if not path.is_file() or path.stat().st_size < 100:
@@ -49,15 +50,20 @@ def check(directory: Path, readelf: str) -> list[str]:
         for old in UNWANTED:
             if old in dependencies:
                 errors.append(f"{lib}: contains unrelated Burnout/Xerenge dependency {old}")
-        if lib == 'librexgpu-plume.so':
+        if lib in ('libfable2.so', 'librexruntime.so', 'librexgpu-plume.so'):
             try:
                 symbols = run_readelf(readelf, '--dyn-syms', path)
             except ValueError as ex:
                 errors.append(str(ex))
                 continue
-            for symbol in GPU_SYMBOLS:
-                if not re.search(r'\b' + re.escape(symbol) + r'(?:@\S+)?\b', symbols):
-                    errors.append(f"{lib}: GPU plugin entry point not exported: {symbol}")
+            if lib in ('libfable2.so', 'librexruntime.so') and re.search(r'\bSDL_main(?:@\S+)?\b', symbols):
+                sdl_entry_found = True
+            if lib == 'librexgpu-plume.so':
+                for symbol in GPU_SYMBOLS:
+                    if not re.search(r'\b' + re.escape(symbol) + r'(?:@\S+)?\b', symbols):
+                        errors.append(f"{lib}: GPU plugin entry point not exported: {symbol}")
+    if all((directory / lib).is_file() for lib in ('libfable2.so', 'librexruntime.so')) and not sdl_entry_found:
+        errors.append('Android SDL entry point SDL_main not exported by libfable2.so or librexruntime.so')
     return errors
 
 

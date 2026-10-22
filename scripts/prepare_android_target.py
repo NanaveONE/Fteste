@@ -34,9 +34,10 @@ endif()"""
 
 GPU_ORIGINAL = "rexglue_setup_target(fable_2 GPU_PLUGINS xenos)"
 GPU_REPLACEMENT = """if(ANDROID)
-    # This requires a Fable-specific GPU implementation. Xerenge's unmodified
-    # Burnout renderer is incompatible. No placeholder GPU plugin is shipped.
-    rexglue_setup_target(fable_2 GPU_PLUGINS plume)
+    # Renderer is built separately by port/gpu/CMakeLists.txt with Fable II
+    # shader data. Do not ask ReXGlue's SDK stage step for a nonexistent
+    # stock GPU plugin: it only knows its own prebuilt backends.
+    rexglue_setup_target(fable_2)
 else()
     rexglue_setup_target(fable_2 GPU_PLUGINS xenos)
 endif()"""

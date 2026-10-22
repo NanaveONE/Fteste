@@ -249,7 +249,7 @@ public final class Fable2LauncherActivity extends Activity {
             return;
         }
         String libDir = getApplicationInfo().nativeLibraryDir;
-        String[] required = {"libfable2.so", "librexruntime.so", "libc++_shared.so"};
+        String[] required = {"libfable2.so", "librexruntime.so", "libc++_shared.so", "librexgpu-plume.so"};
         for (String name : required) {
             if (!new File(libDir, name).isFile()) {
                 new AlertDialog.Builder(this).setTitle("Port nativo incompleto")

@@ -1,0 +1,128 @@
+# Fable II Android Plume GPU plugin (source port from Xerenge's renderer).
+# Xerenge is GPL-3.0-or-later. Retain attribution/license upon distribution.
+#
+# IMPORTANT: compiling a plugin with Fable-specific shaders does NOT mean that
+# the draw state/EDRAM/shader pipeline is already compatible with Fable II.
+cmake_minimum_required(VERSION 3.25)
+project(fable2_plume LANGUAGES C CXX)
+set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+foreach(required IN ITEMS REXSDK_DIR XERENGE_ROOT PLUME_ROOT XENOS_RECOMP_ROOT
+                          FABLE2_SHADER_CACHE_CPP FABLE2_SHADER_HLSL_DIR)
+  if(NOT DEFINED ${required} OR "${${required}}" STREQUAL "")
+    message(FATAL_ERROR "Missing required -D${required}=...")
+  endif()
+endforeach()
+set(XERENGE_REXGLUE "${XERENGE_ROOT}/rexglue")
+set(XERENGE_SRC "${XERENGE_REXGLUE}/src")
+if(NOT EXISTS "${FABLE2_SHADER_CACHE_CPP}" OR
+   NOT EXISTS "${FABLE2_SHADER_HLSL_DIR}" OR
+   NOT EXISTS "${XERENGE_SRC}/plume_renderer/plugin_main.cpp")
+  message(FATAL_ERROR "Fable shader cache, HLSL directory, or Xerenge renderer missing")
+endif()
+# Do not silently use generated/shader_cache.cpp from Burnout Revenge.
+message(STATUS "Fable II shader cache: ${FABLE2_SHADER_CACHE_CPP}")
+
+# ReXGlue GPU ABI and runtime MUST be the same source build used for libfable2
+# and librexruntime. API header equality by itself is insufficient.
+add_subdirectory("${REXSDK_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/rexglue-sdk")
+set(PLUME_SDL_VULKAN_ENABLED OFF CACHE BOOL "" FORCE)
+set(PLUME_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+add_subdirectory("${PLUME_ROOT}" "${CMAKE_CURRENT_BINARY_DIR}/plume")
+set_target_properties(plume PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
+set(SOURCES
+  "${XERENGE_SRC}/plume_renderer/plume_graphics_system.cpp"
+  "${XERENGE_SRC}/plume_renderer/plume_shader_cache.cpp"
+  "${XERENGE_SRC}/plume_renderer/plume_swapchain.cpp"
+  "${XERENGE_SRC}/plume_renderer/plume_postfx.cpp"
+  "${XERENGE_SRC}/plume_renderer/plume_draw.cpp"
+  "${XERENGE_SRC}/plume_renderer/plume_etc2_cache.cpp"
+  "${XERENGE_SRC}/plume_renderer/plume_interp.cpp"
+  "${XERENGE_SRC}/plume_renderer/plume_framegen.cpp"
+  "${XERENGE_SRC}/plume_renderer/plume_settings.cpp"
+  "${XERENGE_SRC}/plume_renderer/plume_colour_table.cpp"
+  "${XERENGE_SRC}/plume_renderer/plugin_main.cpp"
+  "${XERENGE_SRC}/plume_renderer/shader_source_info.cpp"
+  "${XENOS_RECOMP_ROOT}/thirdparty/smol-v/source/smolv.cpp"
+  "${FABLE2_SHADER_CACHE_CPP}"
+)
+if(ANDROID)
+  list(APPEND SOURCES "${XERENGE_SRC}/plume_renderer/frame_clock_provider_android.cpp")
+endif()
+
+# Compile the HLSL metadata generator for the build HOST, not Android ARM64;
+# a host utility must run at compile time even when cross-compiling.
+find_program(HOST_CXX NAMES clang++ c++ g++ NO_CMAKE_FIND_ROOT_PATH REQUIRED)
+set(HOST_SHADER_GEN "${CMAKE_CURRENT_BINARY_DIR}/host/shader_source_info_gen")
+add_custom_command(
+  OUTPUT "${HOST_SHADER_GEN}"
+  COMMAND "${CMAKE_COMMAND}" -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/host"
+  COMMAND "${HOST_CXX}" -std=c++20 -O2 -I "${XERENGE_SRC}"
+          "${XERENGE_REXGLUE}/tools/shader_source_info_gen.cpp"
+          "${XERENGE_SRC}/plume_renderer/shader_source_info.cpp"
+          -o "${HOST_SHADER_GEN}"
+  DEPENDS "${XERENGE_REXGLUE}/tools/shader_source_info_gen.cpp"
+          "${XERENGE_SRC}/plume_renderer/shader_source_info.cpp"
+          "${XERENGE_SRC}/plume_renderer/shader_source_info.h"
+  VERBATIM
+)
+file(GLOB FABLE2_HLSL CONFIGURE_DEPENDS "${FABLE2_SHADER_HLSL_DIR}/*.hlsl")
+set(SHADER_INFO_CPP "${CMAKE_CURRENT_BINARY_DIR}/shader_source_info_table.cpp")
+add_custom_command(
+  OUTPUT "${SHADER_INFO_CPP}"
+  COMMAND "${HOST_SHADER_GEN}" "${FABLE2_SHADER_HLSL_DIR}" "${SHADER_INFO_CPP}"
+  DEPENDS "${HOST_SHADER_GEN}" ${FABLE2_HLSL}
+  COMMENT "Extracting Fable II shader metadata for the GPU renderer"
+  VERBATIM
+)
+list(APPEND SOURCES "${SHADER_INFO_CPP}")
+
+add_library(rexgpu-plume SHARED ${SOURCES})
+set_target_properties(rexgpu-plume PROPERTIES
+  OUTPUT_NAME "rexgpu-plume" CXX_VISIBILITY_PRESET hidden
+  VISIBILITY_INLINES_HIDDEN ON POSITION_INDEPENDENT_CODE ON)
+target_compile_definitions(rexgpu-plume PRIVATE XERENGE_HAS_SHADER_CACHE=1)
+target_include_directories(rexgpu-plume PRIVATE
+  "${XERENGE_SRC}" "${PLUME_ROOT}"
+  "${XENOS_RECOMP_ROOT}/thirdparty/smol-v/source"
+  "${REXSDK_DIR}/thirdparty/renderdoc"
+  "${XERENGE_REXGLUE}/thirdparty/smaa")
+
+if(NOT TARGET xxHash::xxhash)
+  add_subdirectory("${XENOS_RECOMP_ROOT}/thirdparty/xxHash/cmake_unofficial"
+                   "${CMAKE_CURRENT_BINARY_DIR}/xenos-xxhash")
+endif()
+if(NOT TARGET libzstd)
+  set(ZSTD_BUILD_PROGRAMS OFF CACHE BOOL "" FORCE)
+  set(ZSTD_BUILD_SHARED OFF CACHE BOOL "" FORCE)
+  set(ZSTD_BUILD_STATIC ON CACHE BOOL "" FORCE)
+  add_subdirectory("${XENOS_RECOMP_ROOT}/thirdparty/zstd/build/cmake"
+                   "${CMAKE_CURRENT_BINARY_DIR}/xenos-zstd")
+endif()
+
+set(ETCPAK "${XERENGE_REXGLUE}/thirdparty/etcpak")
+if(NOT EXISTS "${ETCPAK}/ProcessRGB.cpp")
+  message(FATAL_ERROR "Missing Xerenge etcpak submodule: run git submodule update --init --recursive")
+endif()
+add_library(fable2-etcpak STATIC "${ETCPAK}/ProcessRGB.cpp"
+  "${ETCPAK}/Tables.cpp" "${ETCPAK}/Dither.cpp")
+set_target_properties(fable2-etcpak PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_include_directories(fable2-etcpak PUBLIC "${ETCPAK}")
+
+target_link_libraries(rexgpu-plume PRIVATE plume rex::runtime
+  libzstd xxHash::xxhash fable2-etcpak z)
+
+if(ANDROID)
+  set(ADRENO_ROOT "${XERENGE_REXGLUE}/android/thirdparty/libadrenotools")
+  if(NOT EXISTS "${ADRENO_ROOT}/CMakeLists.txt")
+    message(FATAL_ERROR "Missing libadrenotools submodule in Xerenge")
+  endif()
+  add_subdirectory("${ADRENO_ROOT}" "${CMAKE_CURRENT_BINARY_DIR}/adrenotools" EXCLUDE_FROM_ALL)
+  target_link_libraries(rexgpu-plume PRIVATE adrenotools)
+  add_dependencies(rexgpu-plume main_hook file_redirect_hook gsl_alloc_hook)
+endif()
+
+message(WARNING "Plume is still Xerenge's renderer logic. Fable II's GPU states,"
+                "runtime-generated shaders and EDRAM resolves are NOT validated.")

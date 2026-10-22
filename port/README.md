@@ -128,3 +128,14 @@ compiladas, não existe APK jogável.**
 O código de joystick virtual deriva da implementação de referência SDL3
 do Xerenge e está identificado como GPL-3.0-or-later; ao redistribuí-lo,
 cumpra a GPL e preserve as licenças dos demais componentes.
+
+## Integração 04: construir Plume com shaders do Fable II
+
+O overlay Android não pede mais `GPU_PLUGINS plume` ao SDK como se o SDK já distribuísse esse plugin. O alvo `librexgpu-plume.so` é construído à parte a partir dos **arquivos-fonte do Xerenge**, usando **shaders específicos da sua cópia de Fable II**.
+
+1. Instale ferramentas host de Xerenge/XenosRecomp (ver `CHANGELOG-04.md`).
+2. Execute `scripts/generate_fable_shaders.py` com `default.xex` legítimo ou imagem já decodificada. Os resultados ficam no diretório ignorado `build/fable2-shaders/`.
+3. Compile o backend Vulkan com `scripts/build_fable_gpu.sh` e um SDK ReXGlue com Android compatível.
+4. Estude os relatórios de `scripts/gpu_log_report.py` e corrija os comandos GPU que ainda falharem.
+
+**Atenção:** shader scan é somente uma etapa; não supre shaders montados em tempo de execução, recursos de GPU específicos do Fable II ou testes de gameplay. Não existe APK jogável validado nesta etapa.

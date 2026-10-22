@@ -34,11 +34,24 @@ class NativeLibAuditTests(unittest.TestCase):
                     return ' Machine: AArch64'
                 if flag == '-d':
                     return 'Dynamic section at offset\n'
-                return 'Symbol table\n  12: 123 GLOBAL DEFAULT 10 rex_gpu_create'
+                return 'Symbol table\n  12: 123 GLOBAL DEFAULT 10 rex_gpu_create SDL_main'
             with patch('scripts.check_native_libs.run_readelf', side_effect=fake_readelf):
                 errors = check(root, 'llvm-readelf')
             self.assertEqual(len(errors), 1)
             self.assertIn('rex_gpu_abi_version', errors[0])
+
+    def test_requires_android_sdl_entry(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for name in REQUIRED:
+                (root / name).write_bytes(b'B' * 500)
+            def fake_readelf(_, flag, path):
+                if flag == '-h': return ' Machine: AArch64'
+                if flag == '-d': return ''
+                return 'rex_gpu_create rex_gpu_abi_version'
+            with patch('scripts.check_native_libs.run_readelf', side_effect=fake_readelf):
+                issues = check(root, 'llvm-readelf')
+            self.assertTrue(any('SDL_main not exported' in problem for problem in issues))
 
     def test_detects_burnout_reference(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -48,7 +61,7 @@ class NativeLibAuditTests(unittest.TestCase):
             def fake_readelf(_, flag, path):
                 if flag == '-h': return ' Machine: AArch64'
                 if flag == '-d': return '(NEEDED) Shared library: [libmain_eu.so]'
-                return 'rex_gpu_create rex_gpu_abi_version'
+                return 'rex_gpu_create rex_gpu_abi_version SDL_main'
             with patch('scripts.check_native_libs.run_readelf', side_effect=fake_readelf):
                 errors = check(root, 'llvm-readelf')
             self.assertEqual(len(errors), len(REQUIRED))
