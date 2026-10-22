@@ -187,3 +187,14 @@ falha, **não comprova gameplay, FPS, áudio ou salvamento**.
 Não comite arquivos comerciais nem envie o jogo para GitHub Actions. Os scripts
 que executam `cmake` e XenosRecomp dependem de um host Linux x86_64; Termux
 sozinho não é um substituto direto do toolchain Linux/Android NDK.
+
+
+### Integração 07: Plume draw overlay
+
+O renderer do Xerenge, compilado para Fable II, passa por
+`scripts/prepare_fable_plume.py`, que cria `build/fable2-plume-overlay/`
+com um `plume_draw.cpp` específico para Fable, registrando falhas de shaders
+com marcador `FABLE2_MISSING_PIPELINE` e respeitando o culling guest por padrão.
+A fonte original do submódulo é preservada. O modo sem culling é recuperado via
+`FABLE2_DISABLE_GUEST_CULL=1`. Isso é uma etapa de compatibilidade, não
+uma demonstração de gameplay ou garantia de que a renderização esteja correta.

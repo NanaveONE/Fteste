@@ -9,7 +9,8 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 foreach(required IN ITEMS REXSDK_DIR XERENGE_ROOT PLUME_ROOT XENOS_RECOMP_ROOT
-                          FABLE2_SHADER_CACHE_CPP FABLE2_SHADER_HLSL_DIR)
+                          FABLE2_SHADER_CACHE_CPP FABLE2_SHADER_HLSL_DIR
+                          FABLE2_PLUME_DRAW_CPP)
   if(NOT DEFINED ${required} OR "${${required}}" STREQUAL "")
     message(FATAL_ERROR "Missing required -D${required}=...")
   endif()
@@ -18,7 +19,8 @@ set(XERENGE_REXGLUE "${XERENGE_ROOT}/rexglue")
 set(XERENGE_SRC "${XERENGE_REXGLUE}/src")
 if(NOT EXISTS "${FABLE2_SHADER_CACHE_CPP}" OR
    NOT EXISTS "${FABLE2_SHADER_HLSL_DIR}" OR
-   NOT EXISTS "${XERENGE_SRC}/plume_renderer/plugin_main.cpp")
+   NOT EXISTS "${XERENGE_SRC}/plume_renderer/plugin_main.cpp" OR
+   NOT EXISTS "${FABLE2_PLUME_DRAW_CPP}")
   message(FATAL_ERROR "Fable shader cache, HLSL directory, or Xerenge renderer missing")
 endif()
 # Do not silently use generated/shader_cache.cpp from Burnout Revenge.
@@ -37,7 +39,8 @@ set(SOURCES
   "${XERENGE_SRC}/plume_renderer/plume_shader_cache.cpp"
   "${XERENGE_SRC}/plume_renderer/plume_swapchain.cpp"
   "${XERENGE_SRC}/plume_renderer/plume_postfx.cpp"
-  "${XERENGE_SRC}/plume_renderer/plume_draw.cpp"
+  # Isolated Fable II-specific draw state handling; never patch the Xerenge source checkout.
+  "${FABLE2_PLUME_DRAW_CPP}"
   "${XERENGE_SRC}/plume_renderer/plume_etc2_cache.cpp"
   "${XERENGE_SRC}/plume_renderer/plume_interp.cpp"
   "${XERENGE_SRC}/plume_renderer/plume_framegen.cpp"
@@ -83,7 +86,7 @@ add_library(rexgpu-plume SHARED ${SOURCES})
 set_target_properties(rexgpu-plume PROPERTIES
   OUTPUT_NAME "rexgpu-plume" CXX_VISIBILITY_PRESET hidden
   VISIBILITY_INLINES_HIDDEN ON POSITION_INDEPENDENT_CODE ON)
-target_compile_definitions(rexgpu-plume PRIVATE XERENGE_HAS_SHADER_CACHE=1)
+target_compile_definitions(rexgpu-plume PRIVATE XERENGE_HAS_SHADER_CACHE=1 FABLE2_PLUME_PORT=1)
 target_include_directories(rexgpu-plume PRIVATE
   "${XERENGE_SRC}" "${PLUME_ROOT}"
   "${XENOS_RECOMP_ROOT}/thirdparty/smol-v/source"

@@ -50,3 +50,20 @@ Foi adicionado `port/gpu/CMakeLists.txt` para construir o plugin Plume dos arqui
 O `dump_xex_image` usado pelo Xerenge atualmente só reconhece XEX com compressão BASIC; se a edição do Fable II utilizar outro formato, a etapa de extração pode falhar. O script aceita imagem já decodificada por um método legítimo como alternativa.
 
 A próxima verificação deve ocorrer com GPU plugin e jogo compilados com **a mesma revisão do SDK**. Executar e ler `gpu_log_report.py` mostrará os shaders e comandos que precisam de suporte adicional. Também é necessário confirmar `SDL_main`, memória convidada, e validação de EDRAM, texturas e estados do Fable II.
+
+## Integração 07 — primeiros ajustes comportamentais do Plume para Fable II
+
+Em `scripts/prepare_fable_plume.py` há agora duas alterações de fonte aplicadas
+**somente à cópia isolada para Fable II**:
+
+- Culling de faces do Xbox 360 habilitado por padrão, com variável
+  `FABLE2_DISABLE_GUEST_CULL=1` para comparação visual com o modo desligado.
+- Registro de 1.024 combinações VS/PS inéditas ausentes, com marcador
+  `FABLE2_MISSING_PIPELINE`. Não inventa shaders nem renders falsos.
+
+A geração `scripts/build_fable_gpu.sh` exige essa cópia e o CMake compila
+`FABLE2_PLUME_PORT=1`. Com logs reais do aparelho, executar
+`python scripts/gpu_log_report.py arquivo.log` e comparar os shaders faltantes.
+Não assumir que ativar culling resolve efeitos gráficos do Fable II: reflexos,
+texturas render-to-texture, formatos EDRAM, blending e resolves precisam de
+validação na GPU do aparelho.

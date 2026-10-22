@@ -25,6 +25,7 @@ jobs:
           python scripts/compare_sdk_abi.py --help
           python scripts/generate_fable_shaders.py --help
           python scripts/gpu_log_report.py --help
+          python scripts/prepare_fable_plume.py --help
           python scripts/audit_android_sdk.py --help
           python scripts/stage_android_libs.py --help
           python scripts/playable_preflight.py --help
@@ -44,6 +45,12 @@ jobs:
           grep -n 'generated/default/sources.cmake' build/fable2-android-worktree/CMakeLists.txt
           grep -n 'POSITION_INDEPENDENT_CODE ON' build/fable2-android-worktree/CMakeLists.txt
           grep -n 'FABLE2_CODEGEN_TOOL.* codegen' scripts/build_android_native.sh
+      - name: Preparar overlay real do renderer Plume sem alterar upstream
+        run: |
+          python scripts/prepare_fable_plume.py --xerenge-root external/Xerenge --output build/fable2-plume-overlay
+          grep -q FABLE2_MISSING_PIPELINE build/fable2-plume-overlay/plume_draw.cpp
+          grep -q FABLE2_DISABLE_GUEST_CULL build/fable2-plume-overlay/plume_draw.cpp
+          grep -q FABLE2_PLUME_DRAW_CPP port/gpu/CMakeLists.txt
       - name: Resumo
         if: always()
         run: |
