@@ -1,0 +1,12 @@
+# Local build output and generated guest C++ (never upload game content)
+/build/
+/out/
+*.apk
+*.aab
+*.iso
+*.xex
+*.god
+*.log
+/data/
+__pycache__/
+*.pyc
