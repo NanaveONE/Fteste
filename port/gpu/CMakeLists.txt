@@ -10,7 +10,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 foreach(required IN ITEMS REXSDK_DIR XERENGE_ROOT PLUME_ROOT XENOS_RECOMP_ROOT
                           FABLE2_SHADER_CACHE_CPP FABLE2_SHADER_HLSL_DIR
-                          FABLE2_PLUME_DRAW_CPP)
+                          FABLE2_PLUME_DRAW_CPP FABLE2_PLUME_GRAPHICS_CPP)
   if(NOT DEFINED ${required} OR "${${required}}" STREQUAL "")
     message(FATAL_ERROR "Missing required -D${required}=...")
   endif()
@@ -20,7 +20,8 @@ set(XERENGE_SRC "${XERENGE_REXGLUE}/src")
 if(NOT EXISTS "${FABLE2_SHADER_CACHE_CPP}" OR
    NOT EXISTS "${FABLE2_SHADER_HLSL_DIR}" OR
    NOT EXISTS "${XERENGE_SRC}/plume_renderer/plugin_main.cpp" OR
-   NOT EXISTS "${FABLE2_PLUME_DRAW_CPP}")
+   NOT EXISTS "${FABLE2_PLUME_DRAW_CPP}" OR
+   NOT EXISTS "${FABLE2_PLUME_GRAPHICS_CPP}")
   message(FATAL_ERROR "Fable shader cache, HLSL directory, or Xerenge renderer missing")
 endif()
 # Do not silently use generated/shader_cache.cpp from Burnout Revenge.
@@ -35,7 +36,7 @@ add_subdirectory("${PLUME_ROOT}" "${CMAKE_CURRENT_BINARY_DIR}/plume")
 set_target_properties(plume PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 set(SOURCES
-  "${XERENGE_SRC}/plume_renderer/plume_graphics_system.cpp"
+  "${FABLE2_PLUME_GRAPHICS_CPP}"
   "${XERENGE_SRC}/plume_renderer/plume_shader_cache.cpp"
   "${XERENGE_SRC}/plume_renderer/plume_swapchain.cpp"
   "${XERENGE_SRC}/plume_renderer/plume_postfx.cpp"
@@ -51,6 +52,15 @@ set(SOURCES
   "${XENOS_RECOMP_ROOT}/thirdparty/smol-v/source/smolv.cpp"
   "${FABLE2_SHADER_CACHE_CPP}"
 )
+# The Xerenge shader cache looks for a separate Bootstrap-suffixed symbol set.
+# This is generated from captured Fable II microcode, NEVER from Burnout data.
+if(FABLE2_RUNTIME_SHADER_CACHE_CPP)
+  if(NOT EXISTS "${FABLE2_RUNTIME_SHADER_CACHE_CPP}")
+    message(FATAL_ERROR "Fable runtime shader cache missing: ${FABLE2_RUNTIME_SHADER_CACHE_CPP}")
+  endif()
+  list(APPEND SOURCES "${FABLE2_RUNTIME_SHADER_CACHE_CPP}")
+  message(STATUS "Fable II runtime shader cache: ${FABLE2_RUNTIME_SHADER_CACHE_CPP}")
+endif()
 if(ANDROID)
   list(APPEND SOURCES "${XERENGE_SRC}/plume_renderer/frame_clock_provider_android.cpp")
 endif()

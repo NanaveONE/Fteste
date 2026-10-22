@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 from scripts.prepare_fable_plume import (
     CULL_ANCHOR, CULL_PATCH, MISS_ANCHOR, MISS_PATCH, patch, prepare,
+    patch_graphics_system, DUMP_ENABLE, DUMP_MKDIR, DUMP_DIR,
 )
 
 
@@ -16,6 +17,34 @@ class FablePlumeOverlayTests(unittest.TestCase):
                 + CULL_ANCHOR + '\n'
                 + '''  // no other draw defaults are patched\n'''
                 + MISS_ANCHOR + '\n')
+
+    @staticmethod
+    def graphics_sample() -> str:
+        return ("#include <filesystem>\n#include <cstdlib>\n#include <fstream>\n"
+                "#include <system_error>\n#include <cstdio>\n"
+                "#define REXLOG_ERROR(...) ((void)0)\n"
+                "void dump() {\n" + DUMP_ENABLE + "\n"
+                "if (!dumping) return;\n"
+                "std::error_code ec;\n" + DUMP_MKDIR + "\n"
+                "char name[80];\n"
+                "std::snprintf(name, sizeof(name), \"%s\", \"a\");\n" + DUMP_DIR + "\n"
+                "auto path = dir / name;\n (void)path;\n }\n")
+
+    def test_graphics_capture_dir_is_writable_and_opt_in(self):
+        result = patch_graphics_system(self.graphics_sample())
+        self.assertIn('FABLE2_DUMP_UCODE', result)
+        self.assertIn('FABLE2_USER_ROOT', result)
+        self.assertIn('"shader-captures" / "ucode-dump"', result)
+        self.assertIn('#else\n  std::filesystem::create_directories("generated/ucode-dump", ec);', result)
+        compiler = shutil.which('clang++') or shutil.which('g++')
+        if compiler:
+            with tempfile.TemporaryDirectory() as temp:
+                cpp = Path(temp) / 'compile.cpp'
+                cpp.write_text(result)
+                for define in ([], ['-DFABLE2_PLUME_PORT=1']):
+                    run = subprocess.run([compiler, '-std=c++20', '-fsyntax-only', *define, str(cpp)],
+                                         capture_output=True, text=True)
+                    self.assertEqual(run.returncode, 0, run.stderr)
 
     def test_guest_culling_is_not_disabled_by_default(self):
         result = patch(self.sample())
@@ -68,6 +97,8 @@ class FablePlumeOverlayTests(unittest.TestCase):
             input_path.parent.mkdir(parents=True)
             source = self.sample()
             input_path.write_text(source)
+            graph = upstream / 'rexglue/src/plume_renderer/plume_graphics_system.cpp'
+            graph.write_text(self.graphics_sample())
             output = base / 'build/fable2-plume-overlay'
             result = prepare(upstream, output)
             self.assertEqual(input_path.read_text(), source)
@@ -86,6 +117,8 @@ class FablePlumeOverlayTests(unittest.TestCase):
             source = upstream / 'rexglue/src/plume_renderer/plume_draw.cpp'
             source.parent.mkdir(parents=True)
             source.write_text(self.sample())
+            graph = upstream / 'rexglue/src/plume_renderer/plume_graphics_system.cpp'
+            graph.write_text(self.graphics_sample())
             with self.assertRaisesRegex(ValueError, 'separate from'):
                 prepare(upstream, upstream / 'generated-test')
 

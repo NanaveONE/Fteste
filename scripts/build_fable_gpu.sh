@@ -33,9 +33,22 @@ python3 "$root/scripts/audit_android_sdk.py" --sdk "$REXSDK_DIR" \
   --fable-sdk "$root/external/Fable-2-Recomp/thirdparty/rexglue-sdk" \
   --json "$root/build/android-sdk-audit.json"
 
+# The host shader-source metadata table must include HLSL from BOTH caches.
+# Two independently generated tables would define FillShaderSourceInfoTable
+# twice and cause a duplicate symbol during the .so link.
+shader_hlsl="$shader_dir/xenos-hlsl"
+if [[ -n "${FABLE2_RUNTIME_SHADER_CACHE_CPP:-}" ]]; then
+  runtime_parent="$(dirname "$(realpath "$FABLE2_RUNTIME_SHADER_CACHE_CPP")")"
+  runtime_hlsl="$runtime_parent/xenos-hlsl"
+  shader_hlsl="$root/build/fable2-shader-hlsl-merged"
+  python3 "$root/scripts/merge_fable_shader_sources.py" \
+    --static "$shader_dir/xenos-hlsl" --runtime "$runtime_hlsl" \
+    --output "$shader_hlsl"
+fi
+
 # Copy+patch the draw state logic in a private build output; do not touch
 # external/Xerenge. Verify source and patch hashes on subsequent invocations.
-plume_overlay="$root/build/fable2-plume-overlay"
+plume_overlay="$root/build/fable2-plume-overlay-v2"
 python3 "$root/scripts/prepare_fable_plume.py" \
   --xerenge-root "$root/external/Xerenge" --output "$plume_overlay"
 build="$root/build/fable2-gpu-android-arm64"
@@ -49,8 +62,10 @@ cmake -S "$root/port/gpu" -B "$build" -G Ninja \
   -DXENOS_RECOMP_ROOT="$XENOS_RECOMP_ROOT" \
   -DXERENGE_ROOT="$root/external/Xerenge" \
   -DFABLE2_SHADER_CACHE_CPP="$shader_cache" \
-  -DFABLE2_SHADER_HLSL_DIR="$shader_dir/xenos-hlsl" \
-  -DFABLE2_PLUME_DRAW_CPP="$plume_overlay/plume_draw.cpp"
+  -DFABLE2_SHADER_HLSL_DIR="$shader_hlsl" \
+  -DFABLE2_PLUME_DRAW_CPP="$plume_overlay/plume_draw.cpp" \
+  -DFABLE2_PLUME_GRAPHICS_CPP="$plume_overlay/plume_graphics_system.cpp" \
+  -DFABLE2_RUNTIME_SHADER_CACHE_CPP="${FABLE2_RUNTIME_SHADER_CACHE_CPP:-}"
 cmake --build "$build" --target rexgpu-plume --parallel "${BUILD_JOBS:-2}"
 [[ -s "$build/librexgpu-plume.so" ]] || { echo 'Expected GPU library was not created' >&2; exit 2; }
 file "$build/librexgpu-plume.so" || true

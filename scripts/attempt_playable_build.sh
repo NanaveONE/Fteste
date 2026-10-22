@@ -62,7 +62,37 @@ else
     --translator "$FABLE2_SHADER_TRANSLATOR" \
     --header "${FABLE2_SHADER_HEADER:-$XENOS_RECOMP_ROOT/XenosRecomp/shader_common.h}"
 fi
+# Keep the host/game/plugin on exactly one Android source SDK; do not use a
+# prebuilt Windows Fable runtime even when its numeric plugin ABI matches.
+if [[ -z "${REXRUNTIME_LIB:-}" ]]; then
+  bash "$root/scripts/build_rexglue_android_sdk.sh"
+  mapfile -t runtime_candidates < <(find "$root/build/rexglue-android-arm64" \
+    -type f -name librexruntime.so -print)
+  if [[ ${#runtime_candidates[@]} != 1 ]]; then
+    echo 'BLOCKED: no unique ReXGlue ARM64 runtime built' >&2
+    exit 2
+  fi
+  export REXRUNTIME_LIB="${runtime_candidates[0]}"
+fi
 bash "$root/scripts/build_android_native.sh"
+# Optional second pass: user-captured runtime shaders are translated offline
+# and rebuilt into the Plume plugin with the Bootstrap symbol set.
+runtime_shaders="$root/build/fable2-runtime-shaders"
+if [[ -d "$runtime_shaders" ]]; then
+  python3 - "$runtime_shaders" "$shader_dir" <<'PYRUNTIME'
+from pathlib import Path
+import json, hashlib, sys
+runtime, static = map(Path, sys.argv[1:])
+report = json.loads((runtime / 'runtime-shader-report.json').read_text())
+main = json.loads((static / 'fable-shader-report.json').read_text())
+cache = runtime / 'shader_cache_runtime.cpp'
+if not cache.is_file() or report.get('shader_cache_sha256') != hashlib.sha256(cache.read_bytes()).hexdigest() \
+   or report.get('guest_image_sha256') != main.get('guest_image_sha256'):
+    raise SystemExit('BLOCKED: stale or mixed runtime shader cache')
+print('OK: linking Fable II runtime-captured shaders into Plume')
+PYRUNTIME
+  export FABLE2_RUNTIME_SHADER_CACHE_CPP="$runtime_shaders/shader_cache_runtime.cpp"
+fi
 bash "$root/scripts/build_fable_gpu.sh"
 : "${REXRUNTIME_LIB:?Set REXRUNTIME_LIB to the ARM64 librexruntime.so from the SAME ReXGlue SDK build}"
 cxx="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so"

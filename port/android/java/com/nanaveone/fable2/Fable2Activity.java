@@ -33,6 +33,12 @@ public final class Fable2Activity extends SDLActivity {
             // Saves/cache must be writable and independent of the APK location.
             File externalRoot = gameRoot.getParentFile();
             Os.setenv("FABLE2_USER_ROOT", externalRoot.getAbsolutePath(), true);
+            // Opt-in only: capturing Xenos microcode can affect frame time.
+            if (getIntent() != null && getIntent().getBooleanExtra("fable2.capture_shaders", false)) {
+                Os.setenv("FABLE2_DUMP_UCODE", "1", true);
+            } else {
+                Os.unsetenv("FABLE2_DUMP_UCODE");
+            }
         } catch (Exception error) {
             Log.w("Fable2Port", "Unable to set FABLE2_GAME_ROOT", error);
         }

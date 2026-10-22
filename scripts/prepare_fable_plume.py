@@ -13,8 +13,10 @@ import json
 from pathlib import Path
 
 RELATIVE_SOURCE = Path('rexglue/src/plume_renderer/plume_draw.cpp')
+GRAPHICS_SOURCE = Path('rexglue/src/plume_renderer/plume_graphics_system.cpp')
 OUTPUT_NAME = 'plume_draw.cpp'
-PATCH_VERSION = 1
+GRAPHICS_OUTPUT_NAME = 'plume_graphics_system.cpp'
+PATCH_VERSION = 2
 
 CULL_ANCHOR = '''  static const bool culling = std::getenv("XERENGE_CULL") != nullptr;
   cull = culling ? (cull & 7u) : 0u;'''
@@ -64,6 +66,60 @@ MISS_PATCH = '''  if (!vs || !ps) {
   }'''
 
 
+# Xerenge only dumps shaders on demand, to its working directory. On
+# Android the cwd is not a reliable, writable place, and the capture must be
+# tied to the Fable II installation rather than Burnout's generated/ tree.
+# This is a REAL C++ source patch: it changes where the existing PM4
+# microcode capture/wrapper logic writes its input for XenosRecomp.
+DUMP_ENABLE = '  static const bool dumping = std::getenv("XERENGE_DUMP_UCODE") != nullptr;'
+DUMP_ENABLE_FABLE = '''#if defined(FABLE2_PLUME_PORT)
+  static const bool dumping = std::getenv("FABLE2_DUMP_UCODE") != nullptr;
+#else
+  static const bool dumping = std::getenv("XERENGE_DUMP_UCODE") != nullptr;
+#endif'''
+DUMP_MKDIR = '  std::filesystem::create_directories("generated/ucode-dump", ec);'
+DUMP_DIR = '  const auto dir = std::filesystem::path("generated/ucode-dump");'
+DUMP_MKDIR_FABLE = '''#if defined(FABLE2_PLUME_PORT)
+  // Game-specific Android storage: no shader dumps into the read-only APK
+  // native libraries or the bundled source tree. Capture only when opted in.
+  const char* writable_root = std::getenv("FABLE2_USER_ROOT");
+  if (!writable_root || !*writable_root) {
+    REXLOG_ERROR("FABLE2_DUMP_UCODE needs FABLE2_USER_ROOT");
+    return;
+  }
+  const auto dir = std::filesystem::path(writable_root) / "shader-captures" / "ucode-dump";
+  std::filesystem::create_directories(dir, ec);
+  if (ec) {
+    REXLOG_ERROR("Fable II shader capture directory not writable: {}", ec.message());
+    return;
+  }
+#else
+  std::filesystem::create_directories("generated/ucode-dump", ec);
+  const auto dir = std::filesystem::path("generated/ucode-dump");
+#endif'''
+
+
+def patch_graphics_system(source: str) -> str:
+    for label, anchor in [('shader capture switch', DUMP_ENABLE),
+                          ('shader capture folder', DUMP_MKDIR),
+                          ('shader capture path', DUMP_DIR)]:
+        if source.count(anchor) != 1:
+            raise ValueError(f'{label}: expected one Xerenge anchor, found {source.count(anchor)}')
+    result = source.replace(DUMP_ENABLE, DUMP_ENABLE_FABLE)
+    # One controlled replacement removes both old directory anchors and puts
+    # the new dir in scope for the rest of DumpMicrocode, with no redeclaration.
+    start = result.index(DUMP_MKDIR)
+    end = result.index(DUMP_DIR, start) + len(DUMP_DIR)
+    between = result[start + len(DUMP_MKDIR):result.index(DUMP_DIR, start)]
+    # Preserve the snprintf block with the filename; it uses no dir.
+    if 'std::snprintf(name,' not in between:
+        raise ValueError('Xerenge shader capture layout changed')
+    result = result[:start] + DUMP_MKDIR_FABLE + '\n' + between.replace(DUMP_DIR, '') + result[end:]
+    if result.count('FABLE2_DUMP_UCODE') < 2:
+        raise ValueError('Fable capture overlay not applied')
+    return result
+
+
 def sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
@@ -80,42 +136,54 @@ def patch(source: str) -> str:
 
 def prepare(xerenge_root: Path, output: Path) -> dict:
     xerenge_root = xerenge_root.expanduser().resolve()
-    source = xerenge_root / RELATIVE_SOURCE
     output = output.expanduser().resolve()
-    if not source.is_file():
-        raise ValueError(f'Xerenge Plume source not found: {source}')
-    if output == xerenge_root or xerenge_root in output.parents or source.is_relative_to(output):
+    sources = {RELATIVE_SOURCE: (OUTPUT_NAME, patch),
+               GRAPHICS_SOURCE: (GRAPHICS_OUTPUT_NAME, patch_graphics_system)}
+    if output == xerenge_root or xerenge_root in output.parents:
         raise ValueError('Overlay must be separate from Xerenge upstream source')
-    original = source.read_bytes()
-    try:
-        text = original.decode('utf-8')
-    except UnicodeDecodeError as err:
-        raise ValueError('Upstream Plume source is not UTF-8') from err
-    changed = patch(text).encode('utf-8')
+    created = {}
+    checksums = {}
+    for relative, (filename, transformer) in sources.items():
+        source = xerenge_root / relative
+        if not source.is_file():
+            raise ValueError(f'Xerenge Plume source not found: {source}')
+        original = source.read_bytes()
+        try:
+            changed = transformer(original.decode('utf-8')).encode('utf-8')
+        except UnicodeDecodeError as err:
+            raise ValueError('Upstream Plume source is not UTF-8') from err
+        created[filename] = changed
+        checksums[filename] = {'source': str(relative),
+                               'upstream_sha256': sha256(original),
+                               'patched_sha256': sha256(changed)}
     manifest = {
-        'title': 'Fable II Plume draw overlay',
+        'title': 'Fable II Plume graphics overlay',
         'patch_version': PATCH_VERSION,
+        'files': checksums,
         'source_relative_path': RELATIVE_SOURCE.as_posix(),
-        'upstream_sha256': sha256(original),
-        'patched_sha256': sha256(changed),
-        'changes': ['Fable-specific guest culling', 'one warning per missing shader pair (max 1024)'],
+        'upstream_sha256': checksums[OUTPUT_NAME]['upstream_sha256'],
+        'patched_sha256': checksums[OUTPUT_NAME]['patched_sha256'],
+        'changes': ['Fable-specific guest culling', 'bounded missing-pipeline diagnostics',
+                    'opt-in writable runtime shader capture in Fable II storage'],
         'status': 'source overlay only; not proven to render Fable II',
     }
-    patched_path = output / OUTPUT_NAME
-    report_path = output / 'plume-overlay.json'
+    report = output / 'plume-overlay.json'
     if output.exists():
-        if not patched_path.is_file() or not report_path.is_file():
+        if not report.is_file():
             raise ValueError('Overlay directory exists but is incomplete. Review before deleting.')
         try:
-            existing = json.loads(report_path.read_text(encoding='utf-8'))
+            existing = json.loads(report.read_text(encoding='utf-8'))
         except (json.JSONDecodeError, UnicodeDecodeError) as err:
             raise ValueError('Invalid existing overlay manifest') from err
-        if existing != manifest or sha256(patched_path.read_bytes()) != sha256(changed):
+        if existing != manifest or any(not (output / key).is_file() or
+                                       sha256((output / key).read_bytes()) != sha256(blob)
+                                       for key, blob in created.items()):
             raise ValueError('Overlay out of date / modified. Review and remove old overlay before retrying.')
         return manifest
     output.mkdir(parents=True)
-    patched_path.write_bytes(changed)
-    report_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
+    for filename, data in created.items():
+        (output / filename).write_bytes(data)
+    report.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
     return manifest
 
 

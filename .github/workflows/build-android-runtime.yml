@@ -1,0 +1,43 @@
+name: Compilar ReXGlue Android ARM64 (sem dados do jogo)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android-runtime:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: android-actions/setup-android@v3
+      - name: Instalar ferramentas e Android NDK
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ninja-build cmake
+          sdkmanager --install 'ndk;27.2.12479018' 'platforms;android-35'
+          echo "ANDROID_NDK_HOME=${ANDROID_HOME}/ndk/27.2.12479018" >> "$GITHUB_ENV"
+      - name: Baixar fork ReXGlue Android e submodulos
+        run: |
+          mkdir -p build/deps
+          git clone --depth 1 --recurse-submodules \
+            https://github.com/shipa-2/rexglue-xerenge.git \
+            build/deps/rexglue-xerenge
+      - name: Compilar runtime Android REAL (sem Fable nem APK)
+        env:
+          BUILD_JOBS: '2'
+        run: |
+          bash scripts/build_rexglue_android_sdk.sh
+      - name: Publicar biblioteca open-source compilada
+        uses: actions/upload-artifact@v4
+        with:
+          name: rexglue-android-arm64-runtime-only
+          path: build/rexglue-android-arm64/**/librexruntime.so
+          if-no-files-found: error
+      - name: Resumo
+        if: always()
+        run: |
+          echo 'Este workflow compila só o runtime ARM64; não contém arquivos comerciais do Fable II.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Não valida renderização, código recompilado do jogo ou gameplay.' >> "$GITHUB_STEP_SUMMARY"

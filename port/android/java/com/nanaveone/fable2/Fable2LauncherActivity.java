@@ -8,6 +8,7 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.provider.DocumentsContract;
 import android.widget.Button;
+import android.widget.CheckBox;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
@@ -38,6 +39,7 @@ public final class Fable2LauncherActivity extends Activity {
     private ProgressBar progress;
     private Button importButton;
     private Button playButton;
+    private CheckBox captureShaders;
     private File gameRoot;
     private int totalDocuments;
 
@@ -72,6 +74,10 @@ public final class Fable2LauncherActivity extends Activity {
         importButton.setText("Importar pasta extraída do Fable II");
         importButton.setOnClickListener(v -> pickFolder());
         layout.addView(importButton);
+        captureShaders = new CheckBox(this);
+        captureShaders.setText("Diagnóstico: capturar shaders do Fable II (reduz desempenho)");
+        captureShaders.setChecked(false);
+        layout.addView(captureShaders);
         playButton = new Button(this);
         playButton.setText("Iniciar Fable II");
         playButton.setOnClickListener(v -> launchGame());
@@ -321,7 +327,9 @@ public final class Fable2LauncherActivity extends Activity {
                 return;
             }
         }
-        startActivity(new Intent(this, Fable2Activity.class));
+        Intent intent = new Intent(this, Fable2Activity.class);
+        intent.putExtra("fable2.capture_shaders", captureShaders.isChecked());
+        startActivity(intent);
     }
 
     @Override

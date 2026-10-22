@@ -215,3 +215,13 @@ armazenamento temporário para a nova cópia. Ver `CHANGELOG-08.md`.
 ReXGlue ainda exige escolher/construir um SDK único e depurar o runtime e a GPU.
 O diagnóstico de ABI agora bloqueia falsos positivos; ele não implementa por
 si só a portabilidade Vulkan de Fable II. Nenhum APK jogável foi validado.
+
+## Integração 09: runtime ARM64 compilável sem o jogo e captura de shaders
+
+A primeira biblioteca a compilar **sem depender de conteúdo comercial** é o runtime do ReXGlue: no GitHub use o workflow manual `Compilar ReXGlue Android ARM64 (sem dados do jogo)` (`.github/workflows/build-android-runtime.yml`). Ele clona o fork Android, aplica o fallback de áudio do Fable II numa cópia ignorada do SDK e tenta produzir `librexruntime.so` AArch64. Não há gameplay nem APK nesse artefato.
+
+A captura de shaders em tempo de execução pode ser ativada por uma opção de diagnóstico no launcher. A fonte do Plume foi adaptada para salvar microcódigo e declarações em `FABLE2_USER_ROOT/shader-captures/ucode-dump/`. Após uma execução válida, os shaders podem ser traduzidos **offline** com `scripts/compile_fable_runtime_shaders.py` e reconstruídos como um cache Bootstrap adicional. `scripts/merge_fable_shader_sources.py` garante que as duas famílias de HLSL alimentem uma tabela de metadados coerente.
+
+**Limitações persistentes:** o runtime livre ainda precisa passar no workflow real; gerar/compilar código recompilado do Fable II, reconciliar outras correções SDK específicas do título, suportar EDRAM/resolves de Fable II e conseguir gameplay no aparelho continuam pendentes. Não marcar recursos como jogáveis até serem demonstrados.
+
+Leia `CHANGELOG-09.md` e `docs/ANDROID-RUNTIME-BUILD-09.md` para comandos e dependências.
