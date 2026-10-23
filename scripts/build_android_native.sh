@@ -103,6 +103,17 @@ python3 "$root/scripts/audit_android_sdk.py" --sdk "$REXSDK_DIR" \
     --fable-sdk "$root/external/Fable-2-Recomp/thirdparty/rexglue-sdk" \
     --json "$root/build/android-sdk-audit.json"
 
+# ImGui is a private SDK transitive header included by rex/rex_app.h.
+# The game target does not inherit its include directory automatically.
+imgui_header="$(find "$REXSDK_DIR/thirdparty" -type f -name imgui.h -print -quit)"
+if [[ -z "$imgui_header" ]]; then
+    echo 'BLOCKED: SDK thirdparty/imgui.h missing; check recursive submodules' >&2
+    exit 2
+fi
+imgui_dir="$(dirname "$imgui_header")"
+[[ -s "$imgui_dir/imgui.h" ]] || { echo 'BLOCKED: imgui.h empty' >&2; exit 2; }
+echo "[android] Dear ImGui include directory: $imgui_dir"
+
 build="$root/build/fable2-android-arm64"
 cmake -S "$work" -B "$build" -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
@@ -112,7 +123,7 @@ cmake -S "$work" -B "$build" -G Ninja \
     -DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON \
     '-DCMAKE_SHARED_LINKER_FLAGS=-Wl,-z,max-page-size=16384' \
     '-DCMAKE_C_FLAGS=-march=armv8-a -moutline-atomics' \
-    '-DCMAKE_CXX_FLAGS=-march=armv8-a -moutline-atomics' \
+    "-DCMAKE_CXX_FLAGS=-march=armv8-a -moutline-atomics -I${imgui_dir}" \
     -DFABLE2_PORT_ROOT="$root/port" \
     -DREXSDK_DIR="$REXSDK_DIR" \
     -DFABLE2_CODEGEN_TOOL= \
