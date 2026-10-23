@@ -39,14 +39,16 @@ jobs:
       - name: Obter entradas da release informada
         shell: bash
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.FABLE2_PRIVATE_TOKEN }}
+          PRIVATE_REPO: NanaveONE/Fable2-Arquivos-Privados
           RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
           set -euo pipefail
+          test -n "$GH_TOKEN" || { echo "BLOCKED: secret FABLE2_PRIVATE_TOKEN ausente"; exit 2; }
           mkdir -p build/private-input
-          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+          gh release download "$RELEASE_TAG" --repo "$PRIVATE_REPO" \
             --pattern 'Fable2-Cpp-Real-Gerado-PRIVADO-24.zip' --dir build/private-input
-          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+          gh release download "$RELEASE_TAG" --repo "$PRIVATE_REPO" \
             --pattern 'default.xex' --dir build/private-input
           test -s build/private-input/Fable2-Cpp-Real-Gerado-PRIVADO-24.zip
           test -s build/private-input/default.xex
@@ -76,13 +78,19 @@ jobs:
         shell: bash
         run: |
           echo 'Build falhou. Confira o log deste job; nao publique fontes do jogo.' >> "$GITHUB_STEP_SUMMARY"
-      - name: Publicar biblioteca ARM64 se concluida
+      # The Fteste repository is public. Never publish game-derived binaries as
+      # Actions artifacts. Upload to the separate PRIVATE repository instead.
+      - name: Guardar biblioteca apenas na release privada
         if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: fable2-android-arm64-guest-26
-          path: |
-            build/fable2-android-arm64/libfable2.so
-            build/fable2-guest-arm64-alignment.json
-          if-no-files-found: error
-          retention-days: 7
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.FABLE2_PRIVATE_TOKEN }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          PRIVATE_REPO: NanaveONE/Fable2-Arquivos-Privados
+        run: |
+          set -euo pipefail
+          test -s build/fable2-android-arm64/libfable2.so
+          gh release upload "$RELEASE_TAG" \
+            build/fable2-android-arm64/libfable2.so \
+            --repo "$PRIVATE_REPO" --clobber
+          echo 'libfable2.so enviado SOMENTE para release do repositorio privado.' >> "$GITHUB_STEP_SUMMARY"
