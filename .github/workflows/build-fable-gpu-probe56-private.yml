@@ -1,0 +1,216 @@
+name: Fable II GPU ARM64 Probe56 - privado, nao APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release privada com SBK e MemExport-DIAGNOSTICO-43.zip'
+        type: string
+        required: true
+        default: 'guest-input-26'
+      xenos_run_id:
+        description: 'Run de XenosRecomp Linux+DXC compativel com o diagnostico43'
+        type: string
+        required: true
+        default: '39971826822'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  private-arm64-gpu-probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    steps:
+      - name: Checkout publico do codigo e fontes upstream
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: NDK r27 Android e ferramentas C++
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Instalar NDK e CMake/Ninja
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y ninja-build cmake clang libzstd1 unzip
+          sdkmanager --install 'ndk;27.2.12479018' 'platforms;android-35'
+          echo "ANDROID_NDK_HOME=${ANDROID_HOME}/ndk/27.2.12479018" >> "$GITHUB_ENV"
+          echo "BUILD_JOBS=2" >> "$GITHUB_ENV"
+
+      - name: Baixar SDK ReXGlue FIXADO e renderer publico
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/deps
+          git clone https://github.com/shipa-2/rexglue-xerenge.git build/deps/rexglue-xerenge
+          git -C build/deps/rexglue-xerenge checkout 3452b5ae307b5f71468cc8b9f18e7d7e0d4c245b
+          git -C build/deps/rexglue-xerenge submodule update --init --recursive
+          git clone --depth 1 --recurse-submodules https://github.com/shipa-2/plume-xerenge.git build/deps/plume-xerenge
+          git clone --depth 1 --recurse-submodules https://github.com/shipa-2/XenosRecomp-xerenge.git build/deps/XenosRecomp-xerenge
+          echo "REXSDK_DIR=$GITHUB_WORKSPACE/build/deps/rexglue-xerenge" >> "$GITHUB_ENV"
+          echo "PLUME_ROOT=$GITHUB_WORKSPACE/build/deps/plume-xerenge" >> "$GITHUB_ENV"
+          echo "XENOS_RECOMP_ROOT=$GITHUB_WORKSPACE/build/deps/XenosRecomp-xerenge" >> "$GITHUB_ENV"
+
+      - name: Reutilizar tradutor Linux+DXC aprovado
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          XENOS_RUN: ${{ inputs.xenos_run_id }}
+        run: |
+          set -euo pipefail
+          [[ "$XENOS_RUN" =~ ^[0-9]+$ ]] || { echo 'BLOCKED: run ID invalido'; exit 2; }
+          mkdir -p build/xenos-host
+          gh run download "$XENOS_RUN" --repo "$GITHUB_REPOSITORY" \
+            --name XenosRecomp-Linux-x86_64-DXC --dir build/xenos-host
+          test -s build/xenos-host/XenosRecomp
+          test -s build/xenos-host/libdxcompiler.so
+          chmod +x build/xenos-host/XenosRecomp
+
+      - name: Baixar conteudo derivado SOMENTE da release privada
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.FABLE2_PRIVATE_TOKEN }}
+          PRIVATE_REPO: NanaveONE/Fable2-Arquivos-Privados
+          TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          test -n "$GH_TOKEN" || { echo 'BLOCKED: configure FABLE2_PRIVATE_TOKEN'; exit 2; }
+          mkdir -p build/private-gpu56
+          gh release download "$TAG" --repo "$PRIVATE_REPO" \
+            --pattern 'Shaders.sbk' --dir build/private-gpu56
+          gh release download "$TAG" --repo "$PRIVATE_REPO" \
+            --pattern 'ShadersRelease.sbk' --dir build/private-gpu56
+          gh release download "$TAG" --repo "$PRIVATE_REPO" \
+            --pattern 'Fable2-MemExport-DIAGNOSTICO-43.zip' --dir build/private-gpu56
+          test -s build/private-gpu56/Shaders.sbk
+          test -s build/private-gpu56/ShadersRelease.sbk
+          test -s build/private-gpu56/Fable2-MemExport-DIAGNOSTICO-43.zip
+
+      - name: Gerar cache Fable real e verificar diagnose dos 5 shaders
+        shell: bash
+        run: |
+          set -euo pipefail
+          export LD_LIBRARY_PATH="$GITHUB_WORKSPACE/build/xenos-host:${LD_LIBRARY_PATH:-}"
+          python3 scripts/fable_shader_1d_compat.py \
+            --header build/xenos-host/shader_common.h \
+            --output build/xenos-host/shader_common_fable_1d.h
+          # The translator may print HLSL excerpts on DXC failures. NEVER
+          # print its raw output in this PUBLIC repository's Actions logs.
+          if ! python3 scripts/generate_fable_shaders.py \
+            --shader-banks build/private-gpu56/Shaders.sbk build/private-gpu56/ShadersRelease.sbk \
+            --output build/fable2-shaders \
+            --translator "$GITHUB_WORKSPACE/build/xenos-host/XenosRecomp" \
+            --header "$GITHUB_WORKSPACE/build/xenos-host/shader_common_fable_1d.h" \
+            > build/private-gpu56/translate.log 2>&1; then
+            echo 'BLOCKED: private shader generation failed. Private log will be uploaded only to private release.'
+            exit 2
+          fi
+          if ! python3 scripts/validate_gpu_probe56.py \
+            --cache build/fable2-shaders/shader_cache.cpp \
+            --scan-dir build/fable2-shaders/xenos-scan \
+            --shader-report build/fable2-shaders/fable-shader-report.json \
+            --diagnostic build/private-gpu56/Fable2-MemExport-DIAGNOSTICO-43.zip \
+            --report build/fable2-shaders/gpu-probe56-report.json \
+            > build/private-gpu56/validate.log 2>&1; then
+            echo 'BLOCKED: private cache provenance/coverage failed. Inspect private report.'
+            exit 2
+          fi
+          echo 'PASS: Fable II diagnostic shader coverage accepted, exactly 583/588 (NOT production).'
+
+
+      - name: Compilar runtime compatível ARM64 sem recompilar libfable2.so
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/build_rexglue_android_sdk.sh
+
+      - name: Tentar COMPILACAO REAL do plugin GPU ARM64 (583 shaders, diagnosticamente)
+        shell: bash
+        env:
+          FABLE2_GPU_PROBE56: '1'
+          FABLE2_GPU_DIAGNOSTIC43_ZIP: ${{ github.workspace }}/build/private-gpu56/Fable2-MemExport-DIAGNOSTICO-43.zip
+        run: |
+          set -euo pipefail
+          # Do not leak any generated, proprietary shader code via compiler
+          # error excerpts to public GitHub Actions logs.
+          if ! bash scripts/build_fable_gpu.sh > build/private-gpu56/gpu-compile.log 2>&1; then
+            echo 'BLOCKED: ARM64 GPU compilation failed. Compiler log stays private.'
+            exit 2
+          fi
+          test -s build/fable2-gpu-android-arm64/librexgpu-plume.so
+          python3 scripts/check_android_16k_alignment.py \
+            --file build/fable2-gpu-android-arm64/librexgpu-plume.so \
+            --report build/private-gpu56/gpu-probe56-alignment.json
+
+      - name: Preparar ZIP privado do binario de diagnostico
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from zipfile import ZipFile,ZIP_DEFLATED
+          from pathlib import Path
+          import hashlib
+          so=Path('build/fable2-gpu-android-arm64/librexgpu-plume.so')
+          dest=Path('build/private-gpu56/Fable2-Plume-ARM64-Probe56-PRIVADO.zip')
+          with ZipFile(dest,'x',compression=ZIP_DEFLATED) as z:
+              z.write(so,'librexgpu-plume.so')
+              z.write('build/fable2-shaders/gpu-probe56-report.json','gpu-probe56-report.json')
+              z.write('build/private-gpu56/gpu-probe56-alignment.json','gpu-probe56-alignment.json')
+              z.writestr('AVISO.txt','NAO E APK. GPU de diagnostico 583/588, faltam cinco MemExport VS. Nao distribuir publicamente. Sem teste grafico nem sincronizacao da memoria do jogo.\n')
+          print('PRIVATE ONLY: ARM64 GPU probe prepared; bytes:',dest.stat().st_size)
+          PY
+
+      - name: Enviar biblioteca de diagnostico SOMENTE para release privada
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.FABLE2_PRIVATE_TOKEN }}
+          PRIVATE_REPO: NanaveONE/Fable2-Arquivos-Privados
+          TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          test -n "$GH_TOKEN" || { echo 'BLOCKED: private release token missing'; exit 2; }
+          gh release upload "$TAG" \
+            build/private-gpu56/Fable2-Plume-ARM64-Probe56-PRIVADO.zip \
+            --repo "$PRIVATE_REPO" --clobber
+          echo 'Private ARM64 GPU compile succeeded (diagnostic 583/588 ONLY). No playable APK or 5 missing shaders.' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Guardar logs de falha SOMENTE na release privada
+        if: failure()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.FABLE2_PRIVATE_TOKEN }}
+          PRIVATE_REPO: NanaveONE/Fable2-Arquivos-Privados
+          TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$GH_TOKEN" || ! -d build/private-gpu56 ]]; then
+            echo 'Private token or build directory unavailable; no logs will be published.'
+            exit 0
+          fi
+          python3 - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile,ZIP_DEFLATED
+          root=Path('build/private-gpu56')
+          logs=list(root.glob('*.log'))
+          if not logs: raise SystemExit(0)
+          with ZipFile(root/'Fable2-GPU-Probe56-LOGS-PRIVADO.zip','w',ZIP_DEFLATED) as z:
+              for p in logs: z.write(p,p.name)
+          print('Saved private compile logs without showing source excerpts.')
+          PY
+          if [[ -s build/private-gpu56/Fable2-GPU-Probe56-LOGS-PRIVADO.zip ]]; then
+            gh release upload "$TAG" \
+              build/private-gpu56/Fable2-GPU-Probe56-LOGS-PRIVADO.zip \
+              --repo "$PRIVATE_REPO" --clobber
+          fi
+
+      - name: Aviso de seguranca (sempre)
+        if: always()
+        run: |
+          echo 'No public artifact upload. Private Fable II shaders and GPU binaries must remain private.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Failed builds expose logs only; no game dumps or shaders are uploaded publicly.' >> "$GITHUB_STEP_SUMMARY"

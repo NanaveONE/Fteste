@@ -29,9 +29,19 @@ if report.get('source_title') != 'Fable II' or report.get('cache_sha256') != act
 PY
 # A valid provenance hash does not prove SPIR-V was generated. Check that
 # every static container in the private extraction has a valid SPIR-V module.
-python3 "$root/scripts/validate_xenosrecomp_cache.py" \
-  --cache "$shader_cache" --scan-dir "$shader_dir/xenos-scan" \
-  --min-coverage 1.0 --report "$shader_dir/spirv-coverage-report.json"
+# FABLE2_GPU_PROBE56_OPT_IN: diagnostic compilation only, never an APK.
+# Without explicit opt-in the full 588/588 production gate is unchanged.
+if [[ "${FABLE2_GPU_PROBE56:-0}" == "1" ]]; then
+  : "${FABLE2_GPU_DIAGNOSTIC43_ZIP:?Set PRIVATE diagnostic43 ZIP for Fable II probe56}"
+  python3 "$root/scripts/validate_gpu_probe56.py" \
+    --cache "$shader_cache" --scan-dir "$shader_dir/xenos-scan" \
+    --shader-report "$shader_report" --diagnostic "$FABLE2_GPU_DIAGNOSTIC43_ZIP" \
+    --report "$shader_dir/gpu-probe56-report.json"
+else
+  python3 "$root/scripts/validate_xenosrecomp_cache.py" \
+    --cache "$shader_cache" --scan-dir "$shader_dir/xenos-scan" \
+    --min-coverage 1.0 --report "$shader_dir/spirv-coverage-report.json"
+fi
 
 # Refuse Windows-only SDKs before an expensive Plume cross build. The exact
 # same Android SDK checkout must be supplied to build_android_native.sh.
@@ -82,6 +92,8 @@ cmake -S "$root/port/gpu" -B "$build" -G Ninja \
   -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake" \
   -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-31 \
   -DANDROID_STL=c++_shared -DCMAKE_BUILD_TYPE=Release \
+  -DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON \
+  '-DCMAKE_SHARED_LINKER_FLAGS=-Wl,-z,max-page-size=16384' \
   '-DCMAKE_C_FLAGS=-march=armv8-a -moutline-atomics' \
   '-DCMAKE_CXX_FLAGS=-march=armv8-a -moutline-atomics' \
   -DREXSDK_DIR="$REXSDK_DIR" -DPLUME_ROOT="$PLUME_ROOT" \

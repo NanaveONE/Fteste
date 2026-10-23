@@ -1,0 +1,30 @@
+name: Fable II GPU Probe56 - diagnostic gate sem jogo
+
+on:
+  push:
+    paths:
+      - 'scripts/validate_gpu_probe56.py'
+      - 'scripts/enable_fable_gpu_probe56.py'
+      - 'scripts/build_fable_gpu.sh'
+      - 'tests/test_gpu_probe56.py'
+      - '.github/workflows/test-fable-gpu-probe56.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gate-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validar cache parcial EXATAMENTE 583/588 e 5 hashes conhecidos
+        run: python3 -m unittest discover -s tests -p test_gpu_probe56.py -v
+      - name: Verificar instalador e que a cobertura de producao nao mudou
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/enable_fable_gpu_probe56.py --root . --check
+          bash -n scripts/build_fable_gpu.sh
+          grep -F -- '--min-coverage 1.0' scripts/build_fable_gpu.sh
+          echo 'Probe56 is compiler-only and requires private 43 diagnostic. Production remains 588/588.' >> "$GITHUB_STEP_SUMMARY"
