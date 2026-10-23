@@ -1,0 +1,29 @@
+name: Fable II MemExport 51 - testes de shader sem jogo
+
+on:
+  push:
+    paths:
+      - 'scripts/compile_memexport_51.py'
+      - 'scripts/verify_spirv_memexport_51.py'
+      - 'scripts/dxc_spirv51.cpp'
+      - 'tests/test_memexport_51.py'
+      - '.github/workflows/test-fable-memexport51.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  public-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Testes de sintaxe, privacidade, limites e ferramentas
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tests -p test_memexport_51.py -v
+          clang++ -std=c++20 -Wall -Wextra -Werror -O2 \
+            scripts/dxc_spirv51.cpp -o /tmp/fable-dxc51 -ldl
+          echo 'Tests only; no private game files and no claim of Vulkan runtime support.' >> "$GITHUB_STEP_SUMMARY"

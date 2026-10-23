@@ -1,0 +1,75 @@
+name: Fable II experimental MemExport 51 - private SPIR-V
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Tag da release somente no repo privado'
+        required: true
+        default: 'guest-input-26'
+        type: string
+      xenos_run_id:
+        description: 'Execucao de XenosRecomp Linux DXC com artifact aprovado'
+        required: true
+        default: '39986495904'
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  private-experiment:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Preparar ferramentas de shader sem arquivos do jogo
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tests -p test_memexport_51.py -v
+          clang++ -std=c++20 -O2 -Wall -Wextra -Werror \
+            scripts/dxc_spirv51.cpp -o /tmp/dxc_spirv51 -ldl
+          mkdir -p build/private-51 build/dxc-51
+      - name: Reutilizar libdxcompiler do tradutor aprovado
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.xenos_run_id }}
+        run: |
+          set -euo pipefail
+          [[ "$RUN_ID" =~ ^[0-9]+$ ]] || exit 2
+          gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name XenosRecomp-Linux-x86_64-DXC --dir build/dxc-51
+          test -s build/dxc-51/libdxcompiler.so
+      - name: Receber HLSL de diagnostico somente do repositorio privado
+        env:
+          GH_TOKEN: ${{ secrets.FABLE2_PRIVATE_TOKEN }}
+          PRIVATE_REPO: NanaveONE/Fable2-Arquivos-Privados
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          test -n "$GH_TOKEN" || { echo 'BLOCKED: private token absent'; exit 2; }
+          gh release download "$RELEASE_TAG" --repo "$PRIVATE_REPO" \
+            --pattern Fable2-MemExport-DIAGNOSTICO-43.zip --dir build/private-51
+          test -s build/private-51/Fable2-MemExport-DIAGNOSTICO-43.zip
+      - name: Traduzir os cinco HLSL privados com buffer real de armazenamento
+        run: |
+          set -euo pipefail
+          python3 scripts/compile_memexport_51.py \
+            --diagnostic build/private-51/Fable2-MemExport-DIAGNOSTICO-43.zip \
+            --dxc /tmp/dxc_spirv51 \
+            --dxcompiler-library "$GITHUB_WORKSPACE/build/dxc-51/libdxcompiler.so" \
+            --output build/private-51/Fable2-MemExport-51-PRIVADO.zip
+          python3 scripts/verify_spirv_memexport_51.py \
+            build/private-51/Fable2-MemExport-51-PRIVADO.zip
+      - name: Publicar APENAS na release privada
+        env:
+          GH_TOKEN: ${{ secrets.FABLE2_PRIVATE_TOKEN }}
+          PRIVATE_REPO: NanaveONE/Fable2-Arquivos-Privados
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          gh release upload "$RELEASE_TAG" \
+            build/private-51/Fable2-MemExport-51-PRIVADO.zip \
+            --repo "$PRIVATE_REPO" --clobber
+          echo 'SPIR-V experimental PRIVADO; não é cache de produção nem prova de jogo funcional.' >> "$GITHUB_STEP_SUMMARY"
