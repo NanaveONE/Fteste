@@ -32,8 +32,18 @@ def run(root:Path,check:bool):
         # CI-54: when overlay53 extends overlay52, verify the *entire exact*
         # extension first, then temporarily undo it in RAM to verify 52.
         # Never rewrite the installed build script or relax the 52 anchors.
+        # FABLE2_PLUME_55_DOWNSTREAM_CI_52: undo only exact validated
+        # downstream scripts IN MEMORY, preserving installed 55 and 53.
         canonical=s
-        if 'FABLE2_PLUME_53_BUILDSCRIPT' in s:
+        if 'FABLE2_PLUME_55_BUILDSCRIPT' in canonical:
+            layer55=Path(__file__).with_name('install_fable_plume55.py')
+            if not layer55.is_file():
+                raise ValueError('55 marker found but installer is missing')
+            item55=runpy.run_path(str(layer55))
+            if canonical.count(item55['MARK'])!=1 or canonical.count(item55['AFTER'])!=1 or item55['BEFORE'] in canonical:
+                raise ValueError('55 layer altered, refusing to verify 52')
+            canonical=canonical.replace(item55['AFTER'],item55['BEFORE'],1)
+        if 'FABLE2_PLUME_53_BUILDSCRIPT' in canonical:
             next_layer=Path(__file__).with_name('install_fable_plume53.py')
             if not next_layer.is_file():
                 raise ValueError('Plume53 marker present but 53 installer is missing')
@@ -41,9 +51,9 @@ def run(root:Path,check:bool):
             mark53=layer53['MARK']
             old53=layer53['BEFORE']
             new53=layer53['AFTER']
-            if s.count(mark53)!=1 or s.count(new53)!=1 or old53 in s:
+            if canonical.count(mark53)!=1 or canonical.count(new53)!=1 or old53 in canonical:
                 raise ValueError('Plume53 integration has changed or is incomplete')
-            canonical=s.replace(new53,old53,1)
+            canonical=canonical.replace(new53,old53,1)
         if canonical.count(AFTER)!=1 or BEFORE in canonical or canonical.count(MARK)!=1:
             raise ValueError('Plume52 installed, but script differs from expected content')
         print('PASS: Plume52 installed and verified (including downstream 53 if present)')
