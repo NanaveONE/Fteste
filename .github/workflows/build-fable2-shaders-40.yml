@@ -69,6 +69,16 @@ jobs:
           test -s build/private-shader-input/ShadersRelease.sbk
           echo 'Bancos de shaders recebidos em diretorio temporario privado do runner.'
 
+      - name: Criar adaptacao experimental de texturas 1D para Vulkan
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/fable_shader_1d_compat.py \
+            --header build/xenos-host/shader_common.h \
+            --output build/xenos-host/shader_common_fable_1d.h
+          test -s build/xenos-host/shader_common_fable_1d.h
+          echo 'Header 1D experimental aplicado; Plume ainda deve implementar recursos 1D como textura 2D de uma linha.' >> "$GITHUB_STEP_SUMMARY"
+
       - name: Traduzir shaders reais do Fable II
         shell: bash
         run: |
@@ -78,7 +88,7 @@ jobs:
                            build/private-shader-input/ShadersRelease.sbk \
             --output build/fable2-shaders \
             --translator "$GITHUB_WORKSPACE/build/xenos-host/XenosRecomp" \
-            --header "$GITHUB_WORKSPACE/build/xenos-host/shader_common.h"
+            --header "$GITHUB_WORKSPACE/build/xenos-host/shader_common_fable_1d.h"
           python3 - <<'PY'
           import json
           from pathlib import Path
