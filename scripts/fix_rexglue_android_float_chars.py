@@ -17,8 +17,8 @@ def patch(path: Path) -> str:
         return 'already patched'
     if text.count('#if REX_PLATFORM_MAC') != 4:
         raise ValueError('Unexpected ReXGlue numeric.h revision: refusing patch')
-    if text.count('std::from_chars(range.data(), range.data() + range.size(), result,') != 1:
-        raise ValueError('Expected float parser not found')
+    if text.count('std::from_chars(range.data(), range.data() + range.size(), result,') != 2:
+        raise ValueError('Expected integer and float parser call sites not found')
     if text.count('std::from_chars(p, end, v.f32[i], std::chars_format::general)') != 1:
         raise ValueError('Expected vec128 float parser not found')
     # Android's libc++ lacks floating-point std::from_chars in NDK r27c.
