@@ -1,0 +1,26 @@
+name: Fable II - teste seguro MemExport 45 (sem jogo)
+
+on:
+  push:
+    paths:
+      - 'port/gpu/fable_memexport_45.h'
+      - 'tests/test_fable_memexport_45.cpp'
+      - '.github/workflows/test-fable-memexport-45.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  memexport-address-decode:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compilar referencia C++ sem arquivos comerciais
+        run: |
+          set -euo pipefail
+          clang++ -std=c++20 -Wall -Wextra -Werror -pedantic \
+            tests/test_fable_memexport_45.cpp -o /tmp/fable-memexport-45-test
+          /tmp/fable-memexport-45-test
+          echo 'PASS: decodificacao de stream e verificacao de memoria; nao implementa GPU Vulkan.' >> "$GITHUB_STEP_SUMMARY"
