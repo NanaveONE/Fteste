@@ -96,7 +96,10 @@ def validate(cache: Path, scan_dir: Path, shader_report: Path, diagnostic_zip: P
         with z.open('partial-cache/shader_cache.cpp') as f:
             old_cache = f.read()
     shader_info = json.loads(shader_report.read_text(encoding='utf-8'))
-    stats = inspect_cpp(cache, scan_dir, min_coverage=583 / 588)
+    # Require 100% for the structural state classification: 583/588 must
+    # remain INCOMPLETE. The opt-in evidence gate below separately
+    # authorizes only the exact known 583/588 diagnostic (never APK).
+    stats = inspect_cpp(cache, scan_dir, min_coverage=1.0)
     return validate_evidence(cache.read_bytes(), shader_info, diagnostic, old_cache, stats)
 
 

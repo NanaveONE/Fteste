@@ -80,12 +80,17 @@ class ProbeTests(unittest.TestCase):
                 z.writestr('diagnostic/memexport-43.json',json.dumps(diag))
                 z.writestr('partial-cache/shader_cache.cpp',cache)
             original=probe.inspect_cpp
-            probe.inspect_cpp=lambda *args, **kwargs: stats
+            seen_thresholds=[]
+            def fake_inspect(*args, **kwargs):
+                seen_thresholds.append(kwargs.get('min_coverage'))
+                return stats
+            probe.inspect_cpp=fake_inspect
             try:
                 result=probe.validate(root/'shader_cache.cpp',directory,root/'fable-shader-report.json',zippath)
             finally:
                 probe.inspect_cpp=original
             self.assertEqual(result['expected'],588)
+            self.assertEqual(seen_thresholds,[1.0])
             self.assertFalse((root/'gpu-probe56-report.json').exists())
 
     def test_opt_in_installer_and_unchanged_strict_gate(self):
