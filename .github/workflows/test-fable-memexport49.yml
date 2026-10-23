@@ -1,0 +1,21 @@
+name: Fable II MemExport 49 - handoff seguro
+on:
+  push:
+    paths:
+      - 'port/gpu/fable_memexport_sync_49.h'
+      - 'tests/test_fable_memexport_sync_49.cpp'
+      - '.github/workflows/test-fable-memexport49.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  unit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Testar readback sem recursos do jogo
+        shell: bash
+        run: |
+          set -euo pipefail
+          clang++ -std=c++20 -Wall -Wextra -Werror -pedantic -fsanitize=address,undefined -fno-omit-frame-pointer tests/test_fable_memexport_sync_49.cpp -o "$RUNNER_TEMP/test49"
+          "$RUNNER_TEMP/test49"
