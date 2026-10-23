@@ -88,7 +88,8 @@ jobs:
                            build/private-shader-input/ShadersRelease.sbk \
             --output build/fable2-shaders \
             --translator "$GITHUB_WORKSPACE/build/xenos-host/XenosRecomp" \
-            --header "$GITHUB_WORKSPACE/build/xenos-host/shader_common_fable_1d.h"
+            --header "$GITHUB_WORKSPACE/build/xenos-host/shader_common_fable_1d.h" \
+            2>&1 | tee build/shader-translation-43.log
           python3 - <<'PY'
           import json
           from pathlib import Path
@@ -110,6 +111,35 @@ jobs:
             --report build/fable2-shaders/spirv-coverage-report.json
           test -s build/fable2-shaders/shader_cache.cpp
           test -s build/fable2-shaders/fable-shader-report.json
+
+      # FABLE2_MEMEXPORT_DIAGNOSTIC_43: allow shader-coverage failures to
+      # expose the five privately generated HLSL sources for GPU development.
+      # This is NOT a fix for memory exports, never a public Actions artifact.
+      - name: Guardar diagnostico incompleto SOMENTE na release privada
+        if: failure()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.FABLE2_PRIVATE_TOKEN }}
+          PRIVATE_REPO: NanaveONE/Fable2-Arquivos-Privados
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          # A failure before translation has no shader data to diagnose.
+          if [[ ! -s build/shader-translation-43.log ||
+                ! -s build/fable2-shaders/shader_cache.cpp ]]; then
+            echo 'Sem cache parcial para diagnosticar.'
+            exit 0
+          fi
+          test -n "$GH_TOKEN" || { echo 'BLOCKED: private token absent'; exit 2; }
+          python3 scripts/report_fable_memexport_43.py \
+            --log build/shader-translation-43.log \
+            --cache build/fable2-shaders/shader_cache.cpp \
+            --hlsl-dir build/fable2-shaders/xenos-hlsl \
+            --output build/Fable2-MemExport-DIAGNOSTICO-43.zip
+          gh release upload "$RELEASE_TAG" \
+            build/Fable2-MemExport-DIAGNOSTICO-43.zip \
+            --repo "$PRIVATE_REPO" --clobber
+          echo 'Diagnostico privado enviado. Workflow continua FAILED ate a cobertura 588/588.' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Compactar resultado para armazenamento privado
         shell: bash
