@@ -48,6 +48,9 @@ if [[ ! -f "$work/CMakeLists.txt" ]]; then
         --output "$work" --port-root "$root/port"
 fi
 
+# Android: disable optional Windows-only diagnostic headers in the isolated worktree.
+python3 "$root/scripts/fix_fable2_android_diagnostics_33.py" --worktree "$work"
+
 # Codegen and Fable's Lua staging operate on the *worktree*, never on the
 # original game dump. Keep copies in ignored build/ to avoid mutating content.
 if [[ -f "$work/default.xex" ]]; then
