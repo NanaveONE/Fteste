@@ -1,0 +1,22 @@
+name: Fable II MemExport 47 CPU writer tests
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'port/gpu/fable_memexport_writer_47.h'
+      - 'tests/test_fable_memexport_writer_47.cpp'
+      - '.github/workflows/test-fable-memexport47.yml'
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Testar escrita CPU com sanitizadores
+        run: |
+          set -euo pipefail
+          clang++ -std=c++20 -Wall -Wextra -Werror -pedantic \
+            -fsanitize=address,undefined -fno-omit-frame-pointer \
+            tests/test_fable_memexport_writer_47.cpp -o /tmp/memexport47
+          /tmp/memexport47
