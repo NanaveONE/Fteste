@@ -4,6 +4,7 @@
 Idempotent verification is handled by --check (for GitHub Actions).
 """
 import argparse
+import runpy
 from pathlib import Path
 
 MARK='FABLE2_PLUME_52_BUILDSCRIPT'
@@ -28,9 +29,24 @@ def run(root:Path,check:bool):
     if not path.is_file():raise ValueError(f'Cannot find GPU build script: {path}')
     s=path.read_text()
     if MARK in s:
-        if AFTER not in s or BEFORE in s or s.count(MARK)!=1:
+        # CI-54: when overlay53 extends overlay52, verify the *entire exact*
+        # extension first, then temporarily undo it in RAM to verify 52.
+        # Never rewrite the installed build script or relax the 52 anchors.
+        canonical=s
+        if 'FABLE2_PLUME_53_BUILDSCRIPT' in s:
+            next_layer=Path(__file__).with_name('install_fable_plume53.py')
+            if not next_layer.is_file():
+                raise ValueError('Plume53 marker present but 53 installer is missing')
+            layer53=runpy.run_path(str(next_layer))
+            mark53=layer53['MARK']
+            old53=layer53['BEFORE']
+            new53=layer53['AFTER']
+            if s.count(mark53)!=1 or s.count(new53)!=1 or old53 in s:
+                raise ValueError('Plume53 integration has changed or is incomplete')
+            canonical=s.replace(new53,old53,1)
+        if canonical.count(AFTER)!=1 or BEFORE in canonical or canonical.count(MARK)!=1:
             raise ValueError('Plume52 installed, but script differs from expected content')
-        print('PASS: Plume52 already installed and verified')
+        print('PASS: Plume52 installed and verified (including downstream 53 if present)')
         return
     if check:
         raise ValueError('Plume52 not installed (run without --check first)')

@@ -12,6 +12,7 @@ def load(path,name):
 
 patch=load('scripts/apply_fable_plume52.py','patch52')
 installer=load('scripts/install_fable_plume52.py','installer52')
+installer53=load('scripts/install_fable_plume53.py','installer53')
 
 # A minimal fixture containing the exact Plume46 C++ anchors, not game code.
 HEADER = '''bool unrelated() { return true; }
@@ -84,6 +85,42 @@ class OverlayTests(unittest.TestCase):
             installer.run(root,False)
             self.assertEqual(build.read_text().count(installer.MARK),1)
             self.assertIn('apply_fable_plume52.py',build.read_text())
+
+    def test_installed_53_preserves_verified_52_without_mutation(self):
+        # The exact 53 extension is inverted in memory, never on disk.
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td); (root/'scripts').mkdir()
+            build=root/'scripts/build_fable_gpu.sh'
+            build.write_text('start\n'+installer.BEFORE+'\nend\n')
+            installer.run(root,False)
+            installer53.run(root,False)
+            installed=build.read_bytes()
+            installer.run(root,True)
+            installer.run(root,False)
+            self.assertEqual(build.read_bytes(),installed)
+            self.assertEqual(build.read_text().count(installer53.MARK),1)
+            self.assertIn(installer53.AFTER,build.read_text())
+
+    def test_installed_53_tamper_rejected_by_52_check(self):
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td); (root/'scripts').mkdir()
+            build=root/'scripts/build_fable_gpu.sh'
+            build.write_text(installer.BEFORE)
+            installer.run(root,False)
+            installer53.run(root,False)
+            good=build.read_text()
+            # Both a damaged downstream 53 and a damaged ancestor 52 fail closed.
+            tampered53=good.replace('apply_fable_plume53.py','apply_fable_plume53_missing.py',1)
+            build.write_text(tampered53)
+            with self.assertRaisesRegex(ValueError,'Plume53 integration'):
+                installer.run(root,True)
+            tampered52=good.replace('plume46_overlay="$root/build/fable2-plume-overlay-46"',
+                                    'plume46_overlay="$root/build/unexpected"',1)
+            build.write_text(tampered52)
+            with self.assertRaisesRegex(ValueError,'Plume52 installed'):
+                installer.run(root,True)
+            build.write_text(good)
+            installer.run(root,True)
 
     def test_fail_if_overlay_missing(self):
         with tempfile.TemporaryDirectory() as td:
