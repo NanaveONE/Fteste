@@ -58,10 +58,15 @@ fi
 base_plume_overlay="$root/build/fable2-plume-overlay-v2"
 python3 "$root/scripts/prepare_fable_plume.py" \
   --xerenge-root "$root/external/Xerenge" --output "$base_plume_overlay"
-plume_overlay="$root/build/fable2-plume-overlay-46"
+# FABLE2_PLUME_52_BUILDSCRIPT: layered over unchanged verified 46.
+plume46_overlay="$root/build/fable2-plume-overlay-46"
 python3 "$root/scripts/apply_fable_plume46.py" \
   --xerenge-root "$root/external/Xerenge" \
-  --base-overlay "$base_plume_overlay" --overlay "$plume_overlay"
+  --base-overlay "$base_plume_overlay" --overlay "$plume46_overlay"
+plume_overlay="$root/build/fable2-plume-overlay-52"
+python3 "$root/scripts/apply_fable_plume52.py" \
+  --xerenge-root "$root/external/Xerenge" \
+  --base-overlay "$plume46_overlay" --overlay "$plume_overlay"
 build="$root/build/fable2-gpu-android-arm64"
 cmake -S "$root/port/gpu" -B "$build" -G Ninja \
   -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake" \
