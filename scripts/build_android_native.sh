@@ -101,6 +101,7 @@ PYCODEGEN
 fi
 
 python3 "$root/scripts/fix_fable2_gpu_progress_34.py" --worktree "$work"
+python3 "$root/scripts/fix_fable2_frame_limiter_35.py" --worktree "$work"
 
 # The game target and recompilation object library both use this SDK checkout;
 # the GPU plugin must use the same checkout and revision too.
