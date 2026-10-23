@@ -162,9 +162,10 @@ fi
 python3 "$root/scripts/check_android_16k_alignment.py" --file "$game_so"     --report "$root/build/fable2-guest-arm64-alignment.json"
 readelf_bin="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
 [[ -x "$readelf_bin" ]] || { echo 'BLOCKED: llvm-readelf missing from NDK' >&2; exit 2; }
-"$readelf_bin" --dyn-syms "$game_so" | grep -Eq 'FUNC +GLOBAL +DEFAULT +[0-9]+ +SDL_main($|[[:space:]])' || {
-    echo 'BLOCKED: libfable2.so does not export SDL_main for SDLActivity' >&2; exit 2;
-}
+# Avoid readelf | grep -q under pipefail: a valid SDL_main can trigger
+# SIGPIPE in readelf after grep exits early, causing a false build failure.
+python3 "$root/scripts/check_fable2_sdl_export_38.py" \
+    --file "$game_so" --readelf "$readelf_bin"
 echo "OK: verified real ARM64 guest library at $game_so"
 echo 'Native compile command completed. This does NOT prove Fable II is playable.'
 echo 'Before packaging you must build a Fable-compatible librexgpu-plume.so'
