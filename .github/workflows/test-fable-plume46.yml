@@ -5,6 +5,8 @@ on:
     paths:
       - 'scripts/apply_fable_plume46.py'
       - 'scripts/install_fable_plume46.py'
+      - 'scripts/build_fable_gpu.sh'
+      - 'port/gpu/CMakeLists.txt'
       - 'port/gpu/fable_loop_constants_46.h'
       - 'tests/test_fable_plume46.cpp'
       - 'tests/test_apply_plume46.py'
@@ -27,14 +29,28 @@ jobs:
           set -euo pipefail
           python3 -m unittest discover -s tests -p 'test_*plume46.py' -v
           clang++ -std=c++20 -Wall -Wextra -Werror -pedantic \
-            tests/test_fable_plume46.cpp -o /tmp/plume46-test
-          /tmp/plume46-test
-      - name: Validar integracao dos build scripts publicos
+            tests/test_fable_plume46.cpp -o "${RUNNER_TEMP}/plume46-test"
+          "${RUNNER_TEMP}/plume46-test"
+      - name: Validar a instalacao ja versionada sem reescrever os arquivos
         shell: bash
         run: |
           set -euo pipefail
-          python3 scripts/install_fable_plume46.py --root .
+          python3 - <<'PY'
+          from pathlib import Path
+          shell = Path('scripts/build_fable_gpu.sh').read_text()
+          cmake = Path('port/gpu/CMakeLists.txt').read_text()
+          require = {
+            'build-shell: marker': shell.count('FABLE2_PLUME_46_BUILDSCRIPT') == 1,
+            'build-shell: overlay patch': 'scripts/apply_fable_plume46.py' in shell,
+            'build-shell: overlay variable': '-DFABLE2_PLUME_OVERLAY_DIR="$plume_overlay"' in shell,
+            'cmake: marker': cmake.count('FABLE2_PLUME_46_BUILDSCRIPT') == 1,
+            'cmake: overlay header': '${FABLE2_PLUME_OVERLAY_DIR}/plume_renderer/plume_draw.h' in cmake,
+            'cmake: explicit include': 'target_include_directories(rexgpu-plume BEFORE PRIVATE' in cmake,
+          }
+          for label, good in require.items():
+              print(('PASS' if good else 'FAIL') + ': ' + label)
+          if not all(require.values()):
+              raise SystemExit('BLOCKED: incomplete or changed Plume46 installation')
+          PY
           bash -n scripts/build_fable_gpu.sh
-          grep -F -- 'FABLE2_PLUME_OVERLAY_DIR' port/gpu/CMakeLists.txt
-          grep -F -- 'apply_fable_plume46.py' scripts/build_fable_gpu.sh
-          echo 'Plume46: CI public-only tests passed. Not a Vulkan runtime test.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Plume46 integration validated WITHOUT reinstalling. GPU Vulkan runtime not tested.' >> "$GITHUB_STEP_SUMMARY"
