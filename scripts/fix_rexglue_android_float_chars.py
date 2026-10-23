@@ -58,11 +58,14 @@ inline std::from_chars_result portable_float_from_chars(const char* first, const
   if (errno == ERANGE) return {first + (end - buffer), std::errc::result_out_of_range};
   value = parsed;
   return {first + (end - buffer), std::errc()};
+}
 '''
     text = text[:start] + block[:-len('\n#endif')] + addition + '#endif' + text[end:]
     # Only two call sites; the mac-only include and portable implementation stay untouched.
     text = text.replace('#if REX_PLATFORM_MAC\n    auto [p, error] = portable_float_from_chars', marker + '\n    auto [p, error] = portable_float_from_chars')
     text = text.replace('#if REX_PLATFORM_MAC\n      auto result = detail::portable_float_from_chars', marker + '\n      auto result = detail::portable_float_from_chars')
+    if 'value = parsed;\n  return {first + (end - buffer), std::errc()};\n}\n#endif' not in text:
+        raise ValueError('Android parser missing closing brace')
     if text.count(marker) != 2:
         raise ValueError('Unexpected float parser call sites')
     path.write_text(text)
