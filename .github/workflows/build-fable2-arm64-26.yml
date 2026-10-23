@@ -1,0 +1,88 @@
+name: Fable II ARM64 - compilar guest real (arquivos fornecidos pelo usuario)
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Tag da release com os arquivos (ex.: guest-input-26)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  fable2-arm64:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Verificar integracao 25 e ferramentas
+        shell: bash
+        run: |
+          set -euo pipefail
+          for f in scripts/import_fable2_guest_cpp_private.py scripts/enable_fable2_private_arm64.py; do
+            test -s "$f" || { echo "BLOCKED: aplique o patch 25 antes: $f"; exit 2; }
+          done
+          python3 scripts/enable_fable2_private_arm64.py --check
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends git cmake ninja-build python3 clang-19 libstdc++-13-dev pkg-config
+      - name: Instalar NDK r27c
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install 'ndk;27.2.12479018'
+          test -f "$ANDROID_HOME/ndk/27.2.12479018/build/cmake/android.toolchain.cmake"
+      - name: Obter entradas da release informada
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p build/private-input
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern 'Fable2-Cpp-Real-Gerado-PRIVADO-24.zip' --dir build/private-input
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern 'default.xex' --dir build/private-input
+          test -s build/private-input/Fable2-Cpp-Real-Gerado-PRIVADO-24.zip
+          test -s build/private-input/default.xex
+          mkdir -p build/private-game
+          cp build/private-input/default.xex build/private-game/default.xex
+          echo 'Entradas encontradas. Nao enviar ZIP ou XEX como artifact do workflow.'
+      - name: Obter SDK ReXGlue compativel
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --recursive https://github.com/shipa-2/rexglue-xerenge.git build/deps/rexglue-xerenge
+          git -C build/deps/rexglue-xerenge checkout 3452b5ae307b5f71468cc8b9f18e7d7e0d4c245b
+          git -C build/deps/rexglue-xerenge submodule update --init --recursive
+      - name: Compilar biblioteca ARM64 real
+        shell: bash
+        env:
+          BUILD_JOBS: '2'
+        run: |
+          set -euo pipefail
+          export REXSDK_DIR="$GITHUB_WORKSPACE/build/deps/rexglue-xerenge"
+          export FABLE2_GAME_ROOT="$GITHUB_WORKSPACE/build/private-game"
+          export FABLE2_PRIVATE_CPP_ZIP="$GITHUB_WORKSPACE/build/private-input/Fable2-Cpp-Real-Gerado-PRIVADO-24.zip"
+          bash scripts/build_android_native.sh
+          test -s build/fable2-android-arm64/libfable2.so
+      - name: Publicar apenas diagnostico sem codigo do jogo
+        if: failure()
+        shell: bash
+        run: |
+          echo 'Build falhou. Confira o log deste job; nao publique fontes do jogo.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Publicar biblioteca ARM64 se concluida
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fable2-android-arm64-guest-26
+          path: |
+            build/fable2-android-arm64/libfable2.so
+            build/fable2-guest-arm64-alignment.json
+          if-no-files-found: error
+          retention-days: 7
