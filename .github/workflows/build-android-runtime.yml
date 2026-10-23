@@ -25,9 +25,10 @@ jobs:
       - name: Baixar fork ReXGlue Android e submodulos
         run: |
           mkdir -p build/deps
-          git clone --depth 1 --recurse-submodules \
-            https://github.com/shipa-2/rexglue-xerenge.git \
-            build/deps/rexglue-xerenge
+          # Same ReXGlue revision as build-fable2-arm64-26.yml (# FTESTE_REXRUNTIME_16K_39)
+          git clone https://github.com/shipa-2/rexglue-xerenge.git build/deps/rexglue-xerenge
+          git -C build/deps/rexglue-xerenge checkout 3452b5ae307b5f71468cc8b9f18e7d7e0d4c245b
+          git -C build/deps/rexglue-xerenge submodule update --init --recursive
       - name: Compilar, verificar ELF e coletar as dependencias ARM64
         env:
           BUILD_JOBS: '2'

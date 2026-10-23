@@ -16,6 +16,14 @@ for command in cmake ninja python3; do command -v "$command" >/dev/null || {
 }; done
 sdk="$(cd "$sdk" && pwd)"
 : "${REXSDK_DIR:=$sdk}"
+# # FTESTE_REXRUNTIME_16K_39 SDK revision must exactly match the already-built libfable2.so.
+revision="$(git -C "$sdk" rev-parse HEAD)" || {
+  echo 'BLOCKED: ReXGlue SDK must be a git checkout' >&2; exit 2;
+}
+if [[ "$revision" != "3452b5ae307b5f71468cc8b9f18e7d7e0d4c245b" ]]; then
+  echo "BLOCKED: wrong ReXGlue SDK revision $revision; expected 3452b5ae307b5f71468cc8b9f18e7d7e0d4c245b" >&2
+  exit 2
+fi
 if [[ ! -f "$sdk/include/rex/audio/fable_clocked_audio_sink.h" ]]; then
   python3 "$root/scripts/port_fable_audio_sdk.py" --sdk "$sdk" --root "$root"
 fi
@@ -44,7 +52,9 @@ cmake -S "$sdk" -B "$build" -G Ninja \
   -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake" \
   -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-31 -DANDROID_STL=c++_shared \
   -DREXGLUE_ENABLE_TRACY=OFF -DREXGLUE_ENABLE_PERF_COUNTERS=OFF \
-  -DREXGLUE_ARM64_MARCH=armv8-a
+  -DREXGLUE_ARM64_MARCH=armv8-a \
+  -DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON \
+  '-DCMAKE_SHARED_LINKER_FLAGS=-Wl,-z,max-page-size=16384'
 cmake --build "$build" --target rexruntime --parallel "${BUILD_JOBS:-2}"
 # Upstream CMakeList.txt deliberately emits shared libraries OUTSIDE the
 # -B binary directory: ${REXGLUE_ROOT}/out/${REX_PLATFORM}/librexruntime.so.
@@ -62,6 +72,10 @@ python3 "$root/scripts/package_rexruntime_arm64.py" \
   echo 'BLOCKED: verified ARM64 runtime was not staged into build/artifacts' >&2
   exit 2
 }
+# # FTESTE_REXRUNTIME_16K_39: reject 4-KiB ELF PT_LOAD segments before uploading the artifact.
+python3 "$root/scripts/check_android_16k_alignment.py" \
+  --directory "$artifact" \
+  --report "$root/build/rexruntime-arm64-alignment.json"
 echo "Compiled and packaged genuine ReXGlue AArch64 runtime: $artifact/librexruntime.so"
 printf 'export REXRUNTIME_LIB=%q\n' "$artifact/librexruntime.so"
 printf 'export REXSDK_DIR=%q\n' "$sdk"
