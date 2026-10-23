@@ -1,0 +1,134 @@
+name: Fable II shaders privados - XenosRecomp SPIR-V 40
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Tag da release no repositorio privado com Shaders.sbk e ShadersRelease.sbk'
+        required: true
+        default: guest-input-26
+        type: string
+      xenos_run_id:
+        description: 'ID do run aprovado do build-xenos-host.yml (artifact Linux x86_64 DXC)'
+        required: true
+        default: '39971826822'
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  translate-fable2-shaders:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Buscar scripts publicos sem dados do jogo
+        uses: actions/checkout@v4
+
+      - name: Preparar ferramentas Linux
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libzstd1 unzip
+          mkdir -p build/xenos-host build/private-shader-input
+
+      - name: Reutilizar XenosRecomp Linux ja compilado
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.xenos_run_id }}
+        run: |
+          set -euo pipefail
+          [[ "$RUN_ID" =~ ^[0-9]+$ ]] || { echo 'BLOCKED: xenos_run_id invalido'; exit 2; }
+          gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name XenosRecomp-Linux-x86_64-DXC --dir build/xenos-host
+          chmod +x build/xenos-host/XenosRecomp
+          test -s build/xenos-host/shader_common.h
+          test -s build/xenos-host/libdxcompiler.so
+          ldd build/xenos-host/XenosRecomp | tee build/xenos-deps.txt
+          if grep -q 'not found' build/xenos-deps.txt; then
+            echo 'BLOCKED: dependencia do XenosRecomp ausente'; exit 2
+          fi
+
+      - name: Buscar bancos de shaders somente na release privada
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.FABLE2_PRIVATE_TOKEN }}
+          PRIVATE_REPO: NanaveONE/Fable2-Arquivos-Privados
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          test -n "$GH_TOKEN" || { echo 'BLOCKED: secret FABLE2_PRIVATE_TOKEN ausente'; exit 2; }
+          gh release download "$RELEASE_TAG" --repo "$PRIVATE_REPO" \
+            --pattern Shaders.sbk --dir build/private-shader-input
+          gh release download "$RELEASE_TAG" --repo "$PRIVATE_REPO" \
+            --pattern ShadersRelease.sbk --dir build/private-shader-input
+          test -s build/private-shader-input/Shaders.sbk
+          test -s build/private-shader-input/ShadersRelease.sbk
+          echo 'Bancos de shaders recebidos em diretorio temporario privado do runner.'
+
+      - name: Traduzir shaders reais do Fable II
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/generate_fable_shaders.py \
+            --shader-banks build/private-shader-input/Shaders.sbk \
+                           build/private-shader-input/ShadersRelease.sbk \
+            --output build/fable2-shaders \
+            --translator "$GITHUB_WORKSPACE/build/xenos-host/XenosRecomp" \
+            --header "$GITHUB_WORKSPACE/build/xenos-host/shader_common.h"
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path('build/fable2-shaders/fable-shader-report.json').read_text())
+          count = report['extracted_containers']
+          if count != 588:
+              raise SystemExit(f'BLOCKED: bancos diferem dos 588 shaders verificados no Termux: {count}')
+          print('PASS: 588 shaders privados extraidos dos dois SBK do Fable II.')
+          PY
+
+      - name: Verificar cobertura completa do cache Vulkan
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/validate_xenosrecomp_cache.py \
+            --cache build/fable2-shaders/shader_cache.cpp \
+            --scan-dir build/fable2-shaders/xenos-scan \
+            --min-coverage 1.0 \
+            --report build/fable2-shaders/spirv-coverage-report.json
+          test -s build/fable2-shaders/shader_cache.cpp
+          test -s build/fable2-shaders/fable-shader-report.json
+
+      - name: Compactar resultado para armazenamento privado
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile, ZIP_DEFLATED
+          base = Path('build/fable2-shaders')
+          dest = Path('build/Fable2-Shaders-SPIRV-PRIVADO-40.zip')
+          if not base.is_dir() or not (base / 'shader_cache.cpp').is_file():
+              raise SystemExit('BLOCKED: cache de shader ausente')
+          with ZipFile(dest, 'w', compression=ZIP_DEFLATED, compresslevel=6, allowZip64=True) as output:
+              for item in sorted(base.rglob('*')):
+                  if item.is_file():
+                      output.write(item, item.as_posix())
+          print(f'Pacote privado preparado: {dest.stat().st_size} bytes')
+          PY
+
+      - name: Guardar shaders somente na release privada
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.FABLE2_PRIVATE_TOKEN }}
+          PRIVATE_REPO: NanaveONE/Fable2-Arquivos-Privados
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          gh release upload "$RELEASE_TAG" \
+            build/Fable2-Shaders-SPIRV-PRIVADO-40.zip \
+            --repo "$PRIVATE_REPO" --clobber
+          echo 'Shaders derivados publicados SOMENTE na release privada; nenhum Actions artifact publico.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Cobertura completa exigida; resultado nao prova renderizacao Vulkan ou gameplay.' >> "$GITHUB_STEP_SUMMARY"
