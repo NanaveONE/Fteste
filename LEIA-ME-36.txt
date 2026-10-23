@@ -1,0 +1,20 @@
+AUDITORIA 36 - Fable II Android ARM64
+
+Corrige a metodologia de diagnóstico, não garante que o jogo rode.
+- Audita includes Windows acessíveis a partir dos arquivos de host C++.
+- Continua compilando após erros independentes: Ninja -k 0.
+- Salva relatório local ignorado: build/android-port-audit-36.json.
+- NÃO coleta nem distribui fontes privadas do jogo.
+
+No Termux:
+cd ~/Fteste && git pull --ff-only
+unzip -o ~/storage/downloads/Fteste-auditoria-preventiva-36.zip -d .
+python3 scripts/enable_audit_android_36.py
+python3 -m unittest discover -s tests -p 'test_*36.py' -v
+bash -n scripts/build_android_native.sh
+git add scripts/build_android_native.sh scripts/audit_android_port_36.py scripts/enable_audit_android_36.py tests/test_audit_android_port_36.py tests/test_enable_audit_android_36.py LEIA-ME-36.txt
+git commit -m 'Auditar port Android e agregar erros do compilador'
+git push origin main
+gh workflow run build-fable2-arm64-26.yml --repo NanaveONE/Fteste -f release_tag=guest-input-26
+
+Aviso: o script de pré-auditoria é heurístico; #if com macros desconhecidas pode gerar alertas, não bloqueia o build. Ninja -k 0 pode prolongar builds com muitos erros mas lista vários de uma só vez.

@@ -103,6 +103,12 @@ fi
 python3 "$root/scripts/fix_fable2_gpu_progress_34.py" --worktree "$work"
 python3 "$root/scripts/fix_fable2_frame_limiter_35.py" --worktree "$work"
 
+# Audit reachable Android host headers after worktree portability patches.
+# This static check cannot replace the compiler. Its report remains private in build/.
+python3 "$root/scripts/audit_android_port_36.py" --worktree "$work" \
+    --report "$root/build/android-port-audit-36.json"
+
+
 # The game target and recompilation object library both use this SDK checkout;
 # the GPU plugin must use the same checkout and revision too.
 python3 "$root/scripts/audit_android_sdk.py" --sdk "$REXSDK_DIR" \
@@ -135,7 +141,9 @@ cmake -S "$work" -B "$build" -G Ninja \
     -DFABLE2_CODEGEN_TOOL= \
     -DREXGLUE_CODEGEN="${FABLE2_CODEGEN_TOOL:-}" \
     -DFABLE2_PRIVATE_CPP_IMPORTED="$private_cpp_mode"
-cmake --build "$build" --target fable_2 --parallel "${BUILD_JOBS:-2}"
+# Keep going after independent compile errors to collect multiple diagnostics
+# in one GitHub Actions run. Ninja's -k 0 stops only when no more progress is possible.
+cmake --build "$build" --target fable_2 --parallel "${BUILD_JOBS:-2}" -- -k 0
 
 # Fail closed if the actual guest library was not produced, is not AArch64,
 # or is incompatible with Android 16 KiB page-size devices.
