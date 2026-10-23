@@ -96,6 +96,14 @@ add_library(rexgpu-plume SHARED ${SOURCES})
 set_target_properties(rexgpu-plume PROPERTIES
   OUTPUT_NAME "rexgpu-plume" CXX_VISIBILITY_PRESET hidden
   VISIBILITY_INLINES_HIDDEN ON POSITION_INDEPENDENT_CODE ON)
+# FABLE2_PLUME_46_BUILDSCRIPT: override only plume_draw.h for the Fable build.
+# Its GuestDrawSnapshot layout MUST be consistent in all Plume translation units.
+if(NOT DEFINED FABLE2_PLUME_OVERLAY_DIR OR
+   NOT EXISTS "${FABLE2_PLUME_OVERLAY_DIR}/plume_renderer/plume_draw.h")
+  message(FATAL_ERROR "Fable Plume46 patched snapshot header missing")
+endif()
+target_include_directories(rexgpu-plume BEFORE PRIVATE
+  "${FABLE2_PLUME_OVERLAY_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}")
 target_compile_definitions(rexgpu-plume PRIVATE XERENGE_HAS_SHADER_CACHE=1 FABLE2_PLUME_PORT=1)
 target_include_directories(rexgpu-plume PRIVATE
   "${XERENGE_SRC}" "${PLUME_ROOT}"

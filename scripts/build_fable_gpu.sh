@@ -54,9 +54,14 @@ fi
 
 # Copy+patch the draw state logic in a private build output; do not touch
 # external/Xerenge. Verify source and patch hashes on subsequent invocations.
-plume_overlay="$root/build/fable2-plume-overlay-v2"
+# FABLE2_PLUME_46_BUILDSCRIPT: keep the old verified overlay immutable.
+base_plume_overlay="$root/build/fable2-plume-overlay-v2"
 python3 "$root/scripts/prepare_fable_plume.py" \
-  --xerenge-root "$root/external/Xerenge" --output "$plume_overlay"
+  --xerenge-root "$root/external/Xerenge" --output "$base_plume_overlay"
+plume_overlay="$root/build/fable2-plume-overlay-46"
+python3 "$root/scripts/apply_fable_plume46.py" \
+  --xerenge-root "$root/external/Xerenge" \
+  --base-overlay "$base_plume_overlay" --overlay "$plume_overlay"
 build="$root/build/fable2-gpu-android-arm64"
 cmake -S "$root/port/gpu" -B "$build" -G Ninja \
   -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake" \
@@ -69,6 +74,7 @@ cmake -S "$root/port/gpu" -B "$build" -G Ninja \
   -DXERENGE_ROOT="$root/external/Xerenge" \
   -DFABLE2_SHADER_CACHE_CPP="$shader_cache" \
   -DFABLE2_SHADER_HLSL_DIR="$shader_hlsl" \
+  -DFABLE2_PLUME_OVERLAY_DIR="$plume_overlay" \
   -DFABLE2_PLUME_DRAW_CPP="$plume_overlay/plume_draw.cpp" \
   -DFABLE2_PLUME_GRAPHICS_CPP="$plume_overlay/plume_graphics_system.cpp" \
   -DFABLE2_RUNTIME_SHADER_CACHE_CPP="${FABLE2_RUNTIME_SHADER_CACHE_CPP:-}"

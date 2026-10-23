@@ -1,0 +1,40 @@
+name: Fable II - validar Plume46 loop binding (sem dados do jogo)
+
+on:
+  push:
+    paths:
+      - 'scripts/apply_fable_plume46.py'
+      - 'scripts/install_fable_plume46.py'
+      - 'port/gpu/fable_loop_constants_46.h'
+      - 'tests/test_fable_plume46.cpp'
+      - 'tests/test_apply_plume46.py'
+      - 'tests/test_install_plume46.py'
+      - '.github/workflows/test-fable-plume46.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-no-game-data:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Testes isolados e patches com ancora exata
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tests -p 'test_*plume46.py' -v
+          clang++ -std=c++20 -Wall -Wextra -Werror -pedantic \
+            tests/test_fable_plume46.cpp -o /tmp/plume46-test
+          /tmp/plume46-test
+      - name: Validar integracao dos build scripts publicos
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/install_fable_plume46.py --root .
+          bash -n scripts/build_fable_gpu.sh
+          grep -F -- 'FABLE2_PLUME_OVERLAY_DIR' port/gpu/CMakeLists.txt
+          grep -F -- 'apply_fable_plume46.py' scripts/build_fable_gpu.sh
+          echo 'Plume46: CI public-only tests passed. Not a Vulkan runtime test.' >> "$GITHUB_STEP_SUMMARY"
