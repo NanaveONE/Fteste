@@ -68,6 +68,11 @@ jobs:
           set -euo pipefail
           python3 scripts/fix_rexglue_android_float_chars.py \
             --sdk build/deps/rexglue-xerenge
+      - name: Corrigir threads Android 31
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/fix_rexglue_android_threads_31.py --sdk build/deps/rexglue-xerenge
       - name: Compilar biblioteca ARM64 real
         shell: bash
         env:
