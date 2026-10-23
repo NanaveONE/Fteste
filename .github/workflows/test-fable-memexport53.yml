@@ -1,0 +1,43 @@
+name: Fable II MemExport 53 - Vulkan journal sem dados do jogo
+
+on:
+  push:
+    paths:
+      - 'scripts/apply_fable_plume53.py'
+      - 'scripts/install_fable_plume53.py'
+      - 'scripts/upgrade_fable_memexport53_private.py'
+      - 'scripts/build_fable_gpu.sh'
+      - 'port/gpu/fable_memexport_journal53.h'
+      - 'tests/test_memexport53.py'
+      - 'tests/test_memexport53.cpp'
+      - '.github/workflows/test-fable-memexport53.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  journal-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validar patches e instalacao sem shaders proprietarios
+        run: python3 -m unittest discover -s tests -p test_memexport53.py -v
+      - name: Verificar diario, buffers e rejeicao atomica com Clang e GCC
+        shell: bash
+        run: |
+          set -euo pipefail
+          clang++ -std=c++20 -Wall -Wextra -Werror -pedantic \
+            tests/test_memexport53.cpp -o "$RUNNER_TEMP/test53-clang"
+          "$RUNNER_TEMP/test53-clang"
+          g++ -std=c++20 -Wall -Wextra -Werror -pedantic \
+            tests/test_memexport53.cpp -o "$RUNNER_TEMP/test53-gcc"
+          "$RUNNER_TEMP/test53-gcc"
+      - name: Verificar instalador ja aplicado sem reescrever
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/install_fable_plume53.py --root . --check
+          bash -n scripts/build_fable_gpu.sh
+          grep -F 'apply_fable_plume53.py' scripts/build_fable_gpu.sh
+          echo 'Vulkan journal layout tested. Real Android GPU/guest RAM commit NOT validated.' >> "$GITHUB_STEP_SUMMARY"
