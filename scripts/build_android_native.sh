@@ -51,6 +51,9 @@ fi
 # Android: disable optional Windows-only diagnostic headers in the isolated worktree.
 python3 "$root/scripts/fix_fable2_android_diagnostics_33.py" --worktree "$work"
 
+# F5 Lua host probe depends on excluded Windows diagnostics; drop it on Android.
+python3 "$root/scripts/fix_fable2_android_f5_lua_37.py" --worktree "$work"
+
 # Codegen and Fable's Lua staging operate on the *worktree*, never on the
 # original game dump. Keep copies in ignored build/ to avoid mutating content.
 if [[ -f "$work/default.xex" ]]; then
