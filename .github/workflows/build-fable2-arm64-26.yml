@@ -62,6 +62,12 @@ jobs:
           git clone --recursive https://github.com/shipa-2/rexglue-xerenge.git build/deps/rexglue-xerenge
           git -C build/deps/rexglue-xerenge checkout 3452b5ae307b5f71468cc8b9f18e7d7e0d4c245b
           git -C build/deps/rexglue-xerenge submodule update --init --recursive
+      - name: Corrigir float from_chars do ReXGlue para Android NDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/fix_rexglue_android_float_chars.py \
+            --sdk build/deps/rexglue-xerenge
       - name: Compilar biblioteca ARM64 real
         shell: bash
         env:
