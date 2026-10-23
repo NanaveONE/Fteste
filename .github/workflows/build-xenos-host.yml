@@ -1,4 +1,4 @@
-name: Compilar XenosRecomp Linux DXC (sem arquivos de jogo)
+name: Compilar XenosRecomp Linux DXC - Fable II registradores 42
 
 on:
   workflow_dispatch:
@@ -9,28 +9,49 @@ permissions:
 jobs:
   translator-host:
     runs-on: ubuntu-24.04
-    timeout-minutes: 75
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
-      - name: Preparar compilador e dependencias publicas
+      - name: Validar patch 42 sem dados privados
         run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tests -p 'test_fix_xenos_fable42.py' -v
+
+      - name: Preparar compilador e dependencias publicas
+        shell: bash
+        run: |
+          set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y clang ninja-build cmake patchelf git-lfs
+          sudo apt-get install -y --no-install-recommends clang ninja-build cmake patchelf git-lfs
           mkdir -p build/deps build/xenos-artifact
-          git clone --depth 1 --recurse-submodules \
+          # Pinned to same source for which patch 42's anchors were checked.
+          git clone --recurse-submodules \
             https://github.com/shipa-2/XenosRecomp-xerenge.git \
             build/deps/XenosRecomp-xerenge
+          git -C build/deps/XenosRecomp-xerenge checkout a65809bc34cae58bc562c6d6e55198b3bf22ea99
           git -C build/deps/XenosRecomp-xerenge submodule update --init --recursive
           git -C build/deps/XenosRecomp-xerenge/thirdparty/dxc-bin lfs pull || true
-      - name: Compilar tradutor oficial REAL com DXC
+
+      - name: Corrigir registradores Xenos e reportar memexport nao implementado
+        shell: bash
         run: |
+          set -euo pipefail
+          python3 scripts/fix_xenos_fable42.py --xenos build/deps/XenosRecomp-xerenge
+
+      - name: Compilar tradutor real com DXC
+        shell: bash
+        run: |
+          set -euo pipefail
           cmake -S build/deps/XenosRecomp-xerenge -B build/xenos-host -G Ninja \
             -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang \
             -DCMAKE_CXX_COMPILER=clang++
           cmake --build build/xenos-host --target XenosRecomp --parallel 2
           test -x build/xenos-host/XenosRecomp/XenosRecomp
-      - name: Empacotar apenas compilador e bibliotecas publicas
+
+      - name: Empacotar apenas tradutor e bibliotecas publicas
+        shell: bash
         run: |
+          set -euo pipefail
           cp build/xenos-host/XenosRecomp/XenosRecomp build/xenos-artifact/XenosRecomp
           cp build/deps/XenosRecomp-xerenge/XenosRecomp/shader_common.h \
             build/xenos-artifact/shader_common.h
@@ -38,30 +59,33 @@ jobs:
           import pathlib, re, shutil, subprocess
           root = pathlib.Path('build/xenos-artifact')
           binary = pathlib.Path('build/xenos-host/XenosRecomp/XenosRecomp')
-          deps = subprocess.run(['ldd', str(binary)], text=True, capture_output=True, check=True).stdout
-          print(deps)
-          if 'not found' in deps:
-              raise SystemExit('BLOCKED: unresolved library in host XenosRecomp')
+          p = subprocess.run(['ldd', str(binary)], text=True, capture_output=True, check=True)
+          print(p.stdout)
+          if 'not found' in p.stdout:
+              raise SystemExit('BLOCKED: unresolved XenosRecomp Linux runtime library')
           dxcompiler = []
-          for line in deps.splitlines():
+          for line in p.stdout.splitlines():
               if 'dxcompiler' not in line.lower():
                   continue
               match = re.search(r'=>\s*(/\S+)', line)
               if match:
                   dxcompiler.append(pathlib.Path(match.group(1)))
           if not dxcompiler:
-              raise SystemExit('BLOCKED: DXC runtime dependency not identified by ldd')
+              raise SystemExit('BLOCKED: DXC Linux runtime library not found by ldd')
           for source in dxcompiler:
               if not source.is_file():
                   raise SystemExit(f'BLOCKED: missing {source}')
               shutil.copy2(source, root / source.name)
           PY
           patchelf --set-rpath '$ORIGIN' build/xenos-artifact/XenosRecomp
+          printf 'XenosRecomp Fable II patch 42\n64 register bank; dynamic integer UBO binding 7.\nMemory exports require GPU backend implementation: NOT a playable renderer.\n' > build/xenos-artifact/README.txt
           test -s build/xenos-artifact/XenosRecomp
-          echo "Public XenosRecomp tool; requires your own private Fable II .sbk files." > build/xenos-artifact/README.txt
-      - name: Publicar tradutor Linux sem dados comerciais
+          test -s build/xenos-artifact/libdxcompiler.so
+
+      - name: Publicar tradutor Linux sem arquivos do jogo
         uses: actions/upload-artifact@v4
         with:
           name: XenosRecomp-Linux-x86_64-DXC
           path: build/xenos-artifact/
           if-no-files-found: error
+          retention-days: 7
