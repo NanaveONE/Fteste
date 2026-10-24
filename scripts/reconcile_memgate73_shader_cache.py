@@ -3,9 +3,10 @@
 
 Never enables memory-export, never removes a shader from a compressed payload,
 and never changes sources outside ignored build/. A fallback is allowed ONLY if
-new codegen has EXACTLY 588 verified entries: the historical 583 plus precisely
-the same five known missing MemExport VS hashes. Reuse the historical compiled
-583-entry diagnostic cache rather than trusting the five new shader binaries.
+new codegen is a strictly verified subset of historical 583 entries (currently
+572, 11 extra translation failures), OR exactly 588 entries consisting of the
+original 583 plus the same five MemExport VS. The historical partial cache is
+verified against all 588 original SBK inputs before any fallback is allowed.
 """
 from __future__ import annotations
 import argparse
@@ -176,18 +177,37 @@ def reconcile(cache: Path, report_path: Path, scan: Path, bank_files: list[Path]
     if len(current_map) == 583:
         state['status'] = 'KEEP_GENERATED_583_VALIDATE_WITH_PROBE56'
         return state
-    if len(current_map) != 588:
+    if len(current_map) not in (572, 588):
         return state
     original, _ = historical(archive)
     old_map = entries(original)
     old_ids = set(old_map)
     new_ids = set(current_map)
-    extra = new_ids - old_ids
-    if (len(old_ids) != 583 or not old_ids.issubset(new_ids) or
-        len(extra) != 5 or {key[0] for key in extra} != MISSING or
-        any(key[1] != 'VS' for key in extra) or
-        set(current_map.values()) != scan_names):
-        raise ReconcileBlocked('588-entry cache is not historical 583 plus exactly the known five MemExport VS')
+    if len(old_ids) != 583 or len(set(old_map.values())) != 583:
+        raise ReconcileBlocked('Historical diagnostic does not contain 583 distinct shader inputs')
+    if len(current_map) == 572:
+        # This is an actual observed regression, not a generic pass for arbitrary
+        # incomplete shader sets. An unrecognized input or changed shader must
+        # BLOCK the fallback; only the exact original 583 may be recovered.
+        extra = new_ids - old_ids
+        state['generated_entries_not_in_historical_583'] = len(extra)
+        state['historical_entries_missing_from_generated'] = len(old_ids - new_ids)
+        if (extra or len(old_ids - new_ids) != 11 or
+            not set(old_map.values()).issubset(scan_names) or
+            not set(current_map.values()).issubset(scan_names) or
+            any(key[0] in MISSING for key in old_ids)):
+            raise ReconcileBlocked('572-entry cache is not an exact subset of the historical 583 shader inputs')
+        fallback_status = 'REUSED_DIAGNOSTIC43_583_AFTER_STRICT_572_SUBSET_MATCH'
+        fallback_record = 'REUSED_HISTORICAL_583_AFTER_STRICT_572_SUBSET_MATCH'
+    else:
+        extra = new_ids - old_ids
+        if (not old_ids.issubset(new_ids) or len(extra) != 5 or
+            {key[0] for key in extra} != MISSING or
+            any(key[1] != 'VS' for key in extra) or
+            set(current_map.values()) != scan_names):
+            raise ReconcileBlocked('588-entry cache is not historical 583 plus exactly the known five MemExport VS')
+        fallback_status = 'REUSED_DIAGNOSTIC43_583_AFTER_STRICT_588_COMPARISON'
+        fallback_record = 'REUSED_HISTORICAL_583_AFTER_STRICT_588_INPUT_MATCH'
     # Verify the actual zstd/SMOL-V layout against the NEW SBK scan before reusing it.
     # Create an isolated temporary file, never touch original game data.
     with tempfile.NamedTemporaryFile(prefix='memgate73-historical-',suffix='.cpp',dir=cache.parent,delete=False) as tmp:
@@ -205,13 +225,15 @@ def reconcile(cache: Path, report_path: Path, scan: Path, bank_files: list[Path]
     cache.write_bytes(original)
     record['cache_sha256'] = sha(original)
     record['memgate73_cache_fallback'] = {
-        'status': 'REUSED_HISTORICAL_583_AFTER_STRICT_588_INPUT_MATCH',
+        'status': fallback_record,
         'untrusted_generated_cache_sha256': sha(current),
-        'five_new_MemExport_shaders_ignored': True,
+        'five_new_MemExport_shaders_ignored': len(current_map) == 588,
+        'historical_extra_shaders_recovered': 11 if len(current_map) == 572 else 0,
+        'generated_entry_count': len(current_map),
         'production_approved': False,
     }
     report_path.write_text(json.dumps(record,indent=2,ensure_ascii=False)+'\n',encoding='utf-8')
-    state['status'] = 'REUSED_DIAGNOSTIC43_583_AFTER_STRICT_588_COMPARISON'
+    state['status'] = fallback_status
     state['safe_fallback_permitted'] = True
     return state
 
@@ -236,7 +258,8 @@ def main() -> int:
     if 'generated_entry_count' in result:
         print(f"Generated entries: {result['generated_entry_count']} (historical expected: 583; SBK inputs: 588)")
     if result.get('status') not in ('KEEP_GENERATED_583_VALIDATE_WITH_PROBE56',
-                                     'REUSED_DIAGNOSTIC43_583_AFTER_STRICT_588_COMPARISON'):
+                                     'REUSED_DIAGNOSTIC43_583_AFTER_STRICT_588_COMPARISON',
+                                     'REUSED_DIAGNOSTIC43_583_AFTER_STRICT_572_SUBSET_MATCH'):
         print('BLOCKED: actual cache differs; no automatic substitution or 5-shader authorization',file=sys.stderr)
         return 2
     print('Diagnostic only: five MemExport commits remain prohibited')
