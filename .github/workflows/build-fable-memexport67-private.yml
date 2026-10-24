@@ -1,0 +1,72 @@
+name: Fable II MemExport67 - private raw address audit (NOT production)
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Private release with verified Fable II generated C++'
+        required: true
+        default: guest-input-26
+        type: string
+permissions:
+  contents: read
+jobs:
+  private-raw-address-audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run synthetic regression tests before inspecting private source
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tests -p test_memexport67.py -v
+      - name: Download C++ ZIP from private release only
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.FABLE2_PRIVATE_TOKEN }}
+          PRIVATE_REPO: NanaveONE/Fable2-Arquivos-Privados
+          TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          test -n "$GH_TOKEN" || { echo 'BLOCKED: private token not configured'; exit 2; }
+          mkdir -p build/private-memexport67
+          gh release download "$TAG" --repo "$PRIVATE_REPO" \
+            --pattern Fable2-Cpp-Real-Gerado-PRIVADO-24.zip \
+            --dir build/private-memexport67
+          test -s build/private-memexport67/Fable2-Cpp-Real-Gerado-PRIVADO-24.zip
+      - name: Classify raw-address contexts without publishing private code
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/classify_memexport67_raw_addresses.py \
+            --archive build/private-memexport67/Fable2-Cpp-Real-Gerado-PRIVADO-24.zip \
+            --report build/private-memexport67/Fable2-MemExport67-RELATORIO-PRIVADO.json \
+            --expected-source-sha256 4a666a2488f5e9e55f9c3f3f5bee18bb3d3ffcedba870daacb8cb8699cc3bd9d \
+            --expected-raw-references 78160
+          python3 - <<'PY'
+          import json
+          r = json.load(open('build/private-memexport67/Fable2-MemExport67-RELATORIO-PRIVADO.json'))
+          c = r['classification_counts']
+          assert r['translation_units'] == 297
+          assert c['raw_address_references_total'] == 78160
+          assert r['memexport_commit_permitted'] is False
+          assert r['global_exclusion_certified'] is False
+          assert c['raw_address_references_total'] == sum(v for k, v in c.items() if k != 'raw_address_references_total')
+          print('PASS: 297 generated C++ files; 78,160 raw address references categorized')
+          print('BLOCKED: remaining unknown memory writers and MemExport guest writes')
+          PY
+      - name: Upload sanitized JSON report to private release only
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.FABLE2_PRIVATE_TOKEN }}
+          PRIVATE_REPO: NanaveONE/Fable2-Arquivos-Privados
+          TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          gh release upload "$TAG" \
+            build/private-memexport67/Fable2-MemExport67-RELATORIO-PRIVADO.json \
+            --repo "$PRIVATE_REPO" --clobber
+          echo 'MemExport67 address context audit complete; 583/588 shader diagnostic coverage. No guest RAM commit enabled.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Private source remains private
+        if: always()
+        run: |
+          echo 'No generated C++ ZIP, transformed source, source excerpts or private report in public artifacts.' >> "$GITHUB_STEP_SUMMARY"

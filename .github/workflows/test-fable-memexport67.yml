@@ -1,0 +1,20 @@
+name: Fable II MemExport67 - raw address classifier tests
+on:
+  push:
+    paths:
+      - 'scripts/classify_memexport67_raw_addresses.py'
+      - 'tests/test_memexport67.py'
+      - '.github/workflows/test-fable-memexport67.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  unit-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Classify safe synthetic guest address operations
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tests -p test_memexport67.py -v
+          python3 -m py_compile scripts/classify_memexport67_raw_addresses.py
