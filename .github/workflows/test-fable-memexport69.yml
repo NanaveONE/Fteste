@@ -1,0 +1,19 @@
+name: Fable II MemExport69 - structural opaque context analysis
+on:
+  push:
+    paths:
+      - 'scripts/inspect_memexport69_opaque_shapes.py'
+      - 'tests/test_memexport69.py'
+      - '.github/workflows/test-fable-memexport69.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run safe source-free context classifier tests
+        run: |
+          python3 -m unittest discover -s tests -p test_memexport69.py -v
+          python3 -m py_compile scripts/inspect_memexport69_opaque_shapes.py
