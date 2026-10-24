@@ -1,0 +1,24 @@
+name: Fable II MemExport70 - diagnostic ARM64 guest source install tests
+on:
+  push:
+    paths:
+      - 'scripts/install_memexport70_private_guest.py'
+      - 'scripts/build_android_native.sh'
+      - '.github/workflows/build-fable2-arm64-26.yml'
+      - '.github/workflows/test-fable-memexport70.yml'
+      - 'tests/test_memexport70.py'
+      - 'docs/FABLE2-MEMEXPORT70.md'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify private diagnostic guest installation and stable ABI
+        run: |
+          python3 -m unittest discover -s tests -p 'test_memexport66.py' -v
+          python3 -m unittest discover -s tests -p 'test_memexport70.py' -v
+          bash -n scripts/build_android_native.sh
+          python3 -m py_compile scripts/install_memexport70_private_guest.py

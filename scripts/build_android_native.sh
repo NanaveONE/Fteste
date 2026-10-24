@@ -68,6 +68,14 @@ if [[ -f "$FABLE2_GAME_ROOT/data/dir.manifest" ]]; then
     cp -- "$FABLE2_GAME_ROOT/data/dir.manifest" "$work/data/dir.manifest"
 fi
 
+# MemExport70 is an explicit diagnostic opt-in. Normal guest builds are unchanged.
+memexport70_mode="${FABLE2_MEMEXPORT70_DIAGNOSTIC:-0}"
+if [[ "$memexport70_mode" != "0" && "$memexport70_mode" != "1" ]]; then
+    echo 'BLOCKED: FABLE2_MEMEXPORT70_DIAGNOSTIC must be 0 or 1' >&2; exit 2
+fi
+if [[ "$memexport70_mode" == "1" && -z "${FABLE2_PRIVATE_CPP_ZIP:-}" ]]; then
+    echo 'BLOCKED: MemExport70 requires original verified private generated C++ ZIP' >&2; exit 2
+fi
 private_cpp_mode=OFF
 if [[ -n "${FABLE2_PRIVATE_CPP_ZIP:-}" ]]; then
     private_cpp_mode=ON
@@ -101,6 +109,24 @@ if not re.search(r'set\s*\(\s*GENERATED_SOURCES\b', text, re.I) or not re.search
     sys.exit('BLOCKED: sources.cmake contains no generated guest .cpp files')
 PYCODEGEN
 
+fi
+
+# Diagnostic only: install the already-tested MemExport66 wrappers into the
+# private guest sources that CMake will actually compile. Neither the original
+# private ZIP nor the tracked C++ sources are modified.
+if [[ "$memexport70_mode" == "1" ]]; then
+    python3 "$root/scripts/install_memexport70_private_guest.py" \
+      --archive "$FABLE2_PRIVATE_CPP_ZIP" \
+      --generated-dir "$work/generated/default" \
+      --report "$root/build/memexport70-guest-build-report.json" \
+      --expected-source-sha256 4a666a2488f5e9e55f9c3f3f5bee18bb3d3ffcedba870daacb8cb8699cc3bd9d \
+      --expected-translation-units 297 --expected-atomics 8436 --expected-intrinsics 38
+    [[ -s "$root/build/memexport70-guest-build-report.json" ]] || {
+        echo 'BLOCKED: MemExport70 generated source report missing' >&2; exit 2;
+    }
+elif [[ -f "$work/generated/default/fable_memexport_writer66.h" ]]; then
+    echo 'BLOCKED: stale instrumented guest C++ in normal build; clean ignored build worktree' >&2
+    exit 2
 fi
 
 python3 "$root/scripts/fix_fable2_gpu_progress_34.py" --worktree "$work"

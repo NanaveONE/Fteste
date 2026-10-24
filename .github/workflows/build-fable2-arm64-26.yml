@@ -7,6 +7,11 @@ on:
         description: 'Tag da release com os arquivos (ex.: guest-input-26)'
         required: true
         type: string
+      memexport70_diagnostic:
+        description: 'Compilar libfable2 ARM64 com instrumentacao diagnostica MemExport66 (nao jogavel)'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -55,6 +60,17 @@ jobs:
           mkdir -p build/private-game
           cp build/private-input/default.xex build/private-game/default.xex
           echo 'Entradas encontradas. Nao enviar ZIP ou XEX como artifact do workflow.'
+      - name: Auditar contextos pendentes MemExport69 SOMENTE em ambiente privado
+        if: ${{ inputs.memexport70_diagnostic }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/inspect_memexport69_opaque_shapes.py \
+            --archive build/private-input/Fable2-Cpp-Real-Gerado-PRIVADO-24.zip \
+            --report build/private-input/Fable2-MemExport70-CONTEXTOS-PRIVADO.json \
+            --private-examples build/Fable2-MemExport70-AMOSTRAS-PRIVADAS.txt \
+            --expected-raw-references 78160 --expected-opaque-references 69724 \
+            --expected-source-sha256 4a666a2488f5e9e55f9c3f3f5bee18bb3d3ffcedba870daacb8cb8699cc3bd9d
       - name: Obter SDK ReXGlue compativel
         shell: bash
         run: |
@@ -77,18 +93,42 @@ jobs:
         shell: bash
         env:
           BUILD_JOBS: '2'
+          FABLE2_MEMEXPORT70_DIAGNOSTIC: ${{ inputs.memexport70_diagnostic && '1' || '0' }}
         run: |
           set -euo pipefail
           export REXSDK_DIR="$GITHUB_WORKSPACE/build/deps/rexglue-xerenge"
           export FABLE2_GAME_ROOT="$GITHUB_WORKSPACE/build/private-game"
           export FABLE2_PRIVATE_CPP_ZIP="$GITHUB_WORKSPACE/build/private-input/Fable2-Cpp-Real-Gerado-PRIVADO-24.zip"
-          bash scripts/build_android_native.sh
+          if [[ "$FABLE2_MEMEXPORT70_DIAGNOSTIC" == "1" ]]; then
+            # Compiler diagnostics may reveal private C++: NEVER print in public Actions logs.
+            if ! bash scripts/build_android_native.sh > build/private-input/memexport70-build.log 2>&1; then
+              echo 'BLOCKED: private MemExport70 ARM64 build failed; log stays private.'
+              exit 2
+            fi
+            test -s build/memexport70-guest-build-report.json
+          else
+            bash scripts/build_android_native.sh
+          fi
           test -s build/fable2-android-arm64/libfable2.so
       - name: Publicar apenas diagnostico sem codigo do jogo
         if: failure()
         shell: bash
         run: |
           echo 'Build falhou. Confira o log deste job; nao publique fontes do jogo.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Guardar falha diagnostica MemExport70 SOMENTE em release privada
+        if: ${{ failure() && inputs.memexport70_diagnostic }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.FABLE2_PRIVATE_TOKEN }}
+          PRIVATE_REPO: NanaveONE/Fable2-Arquivos-Privados
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$GH_TOKEN" && -s build/private-input/memexport70-build.log ]]; then
+            gh release upload "$RELEASE_TAG" \
+              build/private-input/memexport70-build.log \
+              --repo "$PRIVATE_REPO" --clobber
+          fi
       # The Fteste repository is public. Never publish game-derived binaries as
       # Actions artifacts. Upload to the separate PRIVATE repository instead.
       - name: Guardar biblioteca apenas na release privada
@@ -101,7 +141,22 @@ jobs:
         run: |
           set -euo pipefail
           test -s build/fable2-android-arm64/libfable2.so
-          gh release upload "$RELEASE_TAG" \
-            build/fable2-android-arm64/libfable2.so \
-            --repo "$PRIVATE_REPO" --clobber
-          echo 'libfable2.so enviado SOMENTE para release do repositorio privado.' >> "$GITHUB_STEP_SUMMARY"
+          if [[ "${{ inputs.memexport70_diagnostic }}" == "true" ]]; then
+            # Never overwrite the original game library with experimental code.
+            cp build/fable2-android-arm64/libfable2.so \
+              build/private-input/libfable2-MemExport70-DIAGNOSTICO.so
+            cp build/memexport70-guest-build-report.json \
+              build/private-input/Fable2-MemExport70-RELATORIO-PRIVADO.json
+            gh release upload "$RELEASE_TAG" \
+              build/private-input/libfable2-MemExport70-DIAGNOSTICO.so \
+              build/private-input/Fable2-MemExport70-RELATORIO-PRIVADO.json \
+              build/private-input/Fable2-MemExport70-CONTEXTOS-PRIVADO.json \
+              build/Fable2-MemExport70-AMOSTRAS-PRIVADAS.txt \
+              --repo "$PRIVATE_REPO" --clobber
+            echo 'MemExport70 guest diagnostic ARM64 compiled; guest RAM commits remain DISABLED. Normal libfable2.so unchanged.' >> "$GITHUB_STEP_SUMMARY"
+          else
+            gh release upload "$RELEASE_TAG" \
+              build/fable2-android-arm64/libfable2.so \
+              --repo "$PRIVATE_REPO" --clobber
+            echo 'libfable2.so enviado SOMENTE para release do repositorio privado.' >> "$GITHUB_STEP_SUMMARY"
+          fi
