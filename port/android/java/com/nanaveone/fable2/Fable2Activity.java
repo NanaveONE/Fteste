@@ -74,6 +74,10 @@ public final class Fable2Activity extends SDLActivity {
             File external = getExternalFilesDir(null);
             root = new File(external != null ? external : getFilesDir(), "game");
         }
-        return new String[] {"--game_data_root=" + root.getAbsolutePath()};
+        // Explicitly select the Fable II Plume renderer. ReXGlue defaults to
+        // "xenos", while this app stages librexgpu-plume.so. The SDK loader
+        // dynamically opens the plugin from Android's native library folder.
+        // This does not mark the five MemExport shaders as implemented.
+        return new String[] {"--gpu_plugin=plume", "--game_data_root=" + root.getAbsolutePath()};
     }
 }

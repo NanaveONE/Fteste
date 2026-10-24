@@ -1,0 +1,133 @@
+name: Fable II ARM64 Integracao57 - bibliotecas privadas, nao APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release privada contendo libfable2.so e Probe56 validado'
+        required: true
+        type: string
+        default: guest-input-26
+
+permissions:
+  contents: read
+
+jobs:
+  private-native-integration57:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - name: Checkout codigo publico e submodulos
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Preparar NDK r27c e compiladores
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ninja-build cmake clang libzstd1 unzip
+          sdkmanager --install 'ndk;27.2.12479018' 'platforms;android-35'
+          echo "ANDROID_NDK_HOME=${ANDROID_HOME}/ndk/27.2.12479018" >> "$GITHUB_ENV"
+          echo 'BUILD_JOBS=2' >> "$GITHUB_ENV"
+
+      - name: Clonar ReXGlue fixado do Fable II
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/deps build/private-integracao57
+          git clone https://github.com/shipa-2/rexglue-xerenge.git build/deps/rexglue-xerenge
+          git -C build/deps/rexglue-xerenge checkout 3452b5ae307b5f71468cc8b9f18e7d7e0d4c245b
+          git -C build/deps/rexglue-xerenge submodule update --init --recursive
+          echo "REXSDK_DIR=$GITHUB_WORKSPACE/build/deps/rexglue-xerenge" >> "$GITHUB_ENV"
+
+      - name: Baixar SOMENTE binaries da release privada
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.FABLE2_PRIVATE_TOKEN }}
+          PRIVATE_REPO: NanaveONE/Fable2-Arquivos-Privados
+          TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          test -n "$GH_TOKEN" || { echo 'BLOCKED: FABLE2_PRIVATE_TOKEN missing'; exit 2; }
+          gh release download "$TAG" --repo "$PRIVATE_REPO" \
+            --pattern 'libfable2.so' --dir build/private-integracao57
+          gh release download "$TAG" --repo "$PRIVATE_REPO" \
+            --pattern 'Fable2-Plume-ARM64-Probe56-PRIVADO.zip' --dir build/private-integracao57
+          test -s build/private-integracao57/libfable2.so
+          test -s build/private-integracao57/Fable2-Plume-ARM64-Probe56-PRIVADO.zip
+          echo 'Private libraries downloaded; no game-derived content in public logs.'
+
+      - name: Compilar ReXGlue ARM64 do MESMO SDK fixado
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! bash scripts/build_rexglue_android_sdk.sh > build/private-integracao57/rexruntime-build.log 2>&1; then
+            echo 'BLOCKED: runtime compilation failed; private log retained.'
+            exit 2
+          fi
+          test -s build/artifacts/rexglue-android-arm64/librexruntime.so
+          test -s build/artifacts/rexglue-android-arm64/runtime-build-report.json
+
+      - name: Verificar GPU, guest, ABI ELF e alinhamento 16K; montar ZIP privado
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! python3 scripts/integrate_fable2_arm64_probe57.py \
+            --game-lib build/private-integracao57/libfable2.so \
+            --gpu-probe-zip build/private-integracao57/Fable2-Plume-ARM64-Probe56-PRIVADO.zip \
+            --runtime-dir build/artifacts/rexglue-android-arm64 \
+            --readelf "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf" \
+            --output build/private-integracao57/Fable2-ARM64-Integracao57-PRIVADO.zip \
+            > build/private-integracao57/integration57.log 2>&1; then
+            echo 'BLOCKED: private ELF/staging checks failed. Read private report.'
+            exit 2
+          fi
+          test -s build/private-integracao57/Fable2-ARM64-Integracao57-PRIVADO.zip
+          echo 'PASS: PRIVATE diagnostic bundle (not APK, not 588/588).'
+
+      - name: Guardar integracao SOMENTE na release privada
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.FABLE2_PRIVATE_TOKEN }}
+          PRIVATE_REPO: NanaveONE/Fable2-Arquivos-Privados
+          TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          test -n "$GH_TOKEN" || { echo 'BLOCKED: private token missing'; exit 2; }
+          gh release upload "$TAG" \
+            build/private-integracao57/Fable2-ARM64-Integracao57-PRIVADO.zip \
+            --repo "$PRIVATE_REPO" --clobber
+          echo 'PRIVATE ARM64 staging passed: 583/588 shader probe; missing MemExport remains blocked. No APK.' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Guardar falhas SOMENTE em release privada
+        if: failure()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.FABLE2_PRIVATE_TOKEN }}
+          PRIVATE_REPO: NanaveONE/Fable2-Arquivos-Privados
+          TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$GH_TOKEN" || ! -d build/private-integracao57 ]]; then exit 0; fi
+          python3 - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile, ZIP_DEFLATED
+          root=Path('build/private-integracao57')
+          logs=sorted(root.glob('*.log'))
+          if logs:
+              with ZipFile(root/'Fable2-Integracao57-LOGS-PRIVADO.zip','w',ZIP_DEFLATED) as z:
+                  for f in logs: z.write(f, f.name)
+          PY
+          if [[ -s build/private-integracao57/Fable2-Integracao57-LOGS-PRIVADO.zip ]]; then
+            gh release upload "$TAG" \
+              build/private-integracao57/Fable2-Integracao57-LOGS-PRIVADO.zip \
+              --repo "$PRIVATE_REPO" --clobber
+          fi
+
+      - name: Aviso final
+        if: always()
+        run: |
+          echo 'All game binaries and compiler logs stay in the separate private release.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'No playable APK: five MemExport VS still need verified Vulkan + guest RAM semantics.' >> "$GITHUB_STEP_SUMMARY"

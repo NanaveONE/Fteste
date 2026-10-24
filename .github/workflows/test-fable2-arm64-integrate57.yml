@@ -1,0 +1,22 @@
+name: Fable II Android Integracao57 - testes publicos sem jogo
+
+on:
+  push:
+    paths:
+      - 'scripts/integrate_fable2_arm64_probe57.py'
+      - 'tests/test_fable2_arm64_integrate57.py'
+      - 'port/android/java/com/nanaveone/fable2/Fable2Activity.java'
+      - '.github/workflows/build-fable2-arm64-integrate57-private.yml'
+      - '.github/workflows/test-fable2-arm64-integrate57.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  stage57-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Testar port, ZIP privado e gate 583/588
+        run: python3 -m unittest discover -s tests -p test_fable2_arm64_integrate57.py -v
