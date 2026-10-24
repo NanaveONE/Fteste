@@ -1,0 +1,70 @@
+name: Fable II MemExport66 - verify private guest write instrumentation (NOT production)
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Private Fable II release with verified generated C++'
+        required: true
+        default: guest-input-26
+        type: string
+permissions:
+  contents: read
+jobs:
+  private-guest-write-audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify diagnostic transformer on synthetic C++
+        run: |
+          python3 -m unittest discover -s tests -p test_memexport66.py -v
+      - name: Fetch guest generated C++ ONLY from private release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.FABLE2_PRIVATE_TOKEN }}
+          TAG: ${{ inputs.release_tag }}
+          PRIVATE_REPO: NanaveONE/Fable2-Arquivos-Privados
+        run: |
+          set -euo pipefail
+          [[ -n "$GH_TOKEN" ]] || { echo 'BLOCKED: private token absent'; exit 2; }
+          mkdir -p build/private-input
+          gh release download "$TAG" --repo "$PRIVATE_REPO" \
+            --pattern Fable2-Cpp-Real-Gerado-PRIVADO-24.zip \
+            --dir build/private-input
+          test -s build/private-input/Fable2-Cpp-Real-Gerado-PRIVADO-24.zip
+      - name: Instrument 297 guest C++ sources without publishing any of them
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/instrument_memexport66_guest_writes.py \
+            --archive build/private-input/Fable2-Cpp-Real-Gerado-PRIVADO-24.zip \
+            --output-dir build/private-memexport66 \
+            --report build/private-memexport66-report.json \
+            --expected-atomics 8436 --expected-intrinsics 38 \
+            --expected-source-sha256 4a666a2488f5e9e55f9c3f3f5bee18bb3d3ffcedba870daacb8cb8699cc3bd9d \
+            > build/memexport66-stdout.txt
+          test -s build/private-memexport66-report.json
+          python3 - <<'PY'
+          import json
+          d=json.load(open('build/private-memexport66-report.json'))
+          assert d['translation_units']==297
+          assert d['memexport_commit_permitted'] is False
+          print('PASS: private 297-file guest instrumentation; global synchronization NOT certified')
+          PY
+      - name: Save only sanitized report to private release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.FABLE2_PRIVATE_TOKEN }}
+          TAG: ${{ inputs.release_tag }}
+          PRIVATE_REPO: NanaveONE/Fable2-Arquivos-Privados
+        run: |
+          set -euo pipefail
+          cp build/private-memexport66-report.json build/Fable2-MemExport66-RELATORIO-PRIVADO.json
+          gh release upload "$TAG" build/Fable2-MemExport66-RELATORIO-PRIVADO.json \
+            --repo "$PRIVATE_REPO" --clobber
+          echo 'Private guest write call-site instrumentation verified. Not synchronized or playable.' >> "$GITHUB_STEP_SUMMARY"
+      - name: No private source in public CI artifacts
+        if: always()
+        run: |
+          echo 'Never upload build/private-input or build/private-memexport66 as public artifacts.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'MemExport guest RAM commits remain DISABLED; 583/588 diagnostic shaders.' >> "$GITHUB_STEP_SUMMARY"

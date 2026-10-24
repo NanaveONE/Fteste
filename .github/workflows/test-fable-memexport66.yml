@@ -1,0 +1,20 @@
+name: Fable II MemExport66 - private generated guest write instrumentation tests
+on:
+  push:
+    paths:
+      - 'scripts/instrument_memexport66_guest_writes.py'
+      - 'port/sdk/fable_memexport_writer66.h'
+      - 'tests/test_memexport66.py'
+      - '.github/workflows/test-fable-memexport66.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test rewriting, private ZIP bounds and actual C++ execution
+        run: |
+          python3 -m unittest discover -s tests -p 'test_memexport66.py' -v
+          python3 -m py_compile scripts/instrument_memexport66_guest_writes.py
