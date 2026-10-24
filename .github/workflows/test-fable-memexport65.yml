@@ -1,0 +1,19 @@
+name: Fable II MemExport65 - classify guest atomics and raw memory
+on:
+  push:
+    paths:
+      - 'scripts/classify_memexport65_guest_access.py'
+      - 'tests/test_memexport65.py'
+      - '.github/workflows/test-fable-memexport65.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate MemExport65 conservative classifier (no private source)
+        run: |
+          python3 -m unittest discover -s tests -p 'test_memexport65.py' -v
+          python3 -m py_compile scripts/classify_memexport65_guest_access.py
