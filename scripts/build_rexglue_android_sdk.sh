@@ -58,6 +58,13 @@ if [[ "$memgate71_mode" == "1" ]]; then
     python3 "$root/scripts/patch_rex_memgate71_sdk.py" --sdk "$sdk"
   fi
   python3 "$root/scripts/patch_rex_memgate71_sdk.py" --sdk "$sdk" --check
+  # Memgate72: real pinned PM4 GPU writeback and mapping entry points.
+  # Diagnostic only; Vulkan fences, DMA and other writers not certified.
+  if ! python3 "$root/scripts/patch_rex_memgate72_sdk.py" --sdk "$sdk" --check >/dev/null 2>&1; then
+    python3 "$root/scripts/patch_rex_memgate72_sdk.py" --sdk "$sdk"
+  fi
+  python3 "$root/scripts/patch_rex_memgate72_sdk.py" --sdk "$sdk" --check \
+    --report "$root/build/memgate72-rexruntime-hooks.json"
 fi
 python3 "$root/scripts/audit_android_sdk.py" --sdk "$sdk" \
   --json "$root/build/rexglue-android-sdk-audit.json"

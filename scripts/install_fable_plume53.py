@@ -27,7 +27,8 @@ def run(root:Path,check:bool):
     s=path.read_text()
     if MARK in s:
         # FABLE2_PLUME_55_DOWNSTREAM_CI_53: check exact 55 then undo in RAM.
-        canonical=s
+        downstream=runpy.run_path(str(Path(__file__).with_name('normalize_fable_plume_build.py')))
+        canonical=downstream['canonical_stage55'](s)
         if 'FABLE2_PLUME_55_BUILDSCRIPT' in canonical:
             layer55=Path(__file__).with_name('install_fable_plume55.py')
             if not layer55.is_file():

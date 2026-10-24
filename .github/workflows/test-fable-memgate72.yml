@@ -1,0 +1,31 @@
+name: Fable II Memgate72 - PM4 GPU writer enrollment tests
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'scripts/patch_rex_memgate72_sdk.py'
+      - 'scripts/apply_fable_plume72.py'
+      - 'scripts/build_fable_gpu.sh'
+      - 'scripts/build_rexglue_android_sdk.sh'
+      - 'port/gpu/CMakeLists.txt'
+      - 'tests/test_memgate72.py'
+      - '.github/workflows/test-fable-memgate72.yml'
+permissions:
+  contents: read
+jobs:
+  gpu-writer-scopes:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate stage72 hooks without private game code
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tests -p 'test_memgate72.py' -v
+          python3 -m unittest discover -s tests -p 'test_memgate71.py' -v
+          bash -n scripts/build_rexglue_android_sdk.sh
+          bash -n scripts/build_fable_gpu.sh
+          python3 scripts/install_fable_plume52.py --root . --check
+          python3 scripts/install_fable_plume53.py --root . --check
+          python3 scripts/install_fable_plume55.py --root . --check
+          echo 'Source-only PM4 writer hooks validated; device DMA/guest commits remain BLOCKED.' >> "$GITHUB_STEP_SUMMARY"

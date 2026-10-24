@@ -34,7 +34,8 @@ def run(root:Path,check:bool):
         # Never rewrite the installed build script or relax the 52 anchors.
         # FABLE2_PLUME_55_DOWNSTREAM_CI_52: undo only exact validated
         # downstream scripts IN MEMORY, preserving installed 55 and 53.
-        canonical=s
+        downstream=runpy.run_path(str(Path(__file__).with_name('normalize_fable_plume_build.py')))
+        canonical=downstream['canonical_stage55'](s)
         if 'FABLE2_PLUME_55_BUILDSCRIPT' in canonical:
             layer55=Path(__file__).with_name('install_fable_plume55.py')
             if not layer55.is_file():

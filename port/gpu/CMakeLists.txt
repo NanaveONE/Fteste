@@ -155,6 +155,10 @@ target_link_libraries(rexgpu-plume PRIVATE plume rex::runtime
 # Entry/exit callbacks are opt-in; real Plume queue/DMA scope coverage is NOT
 # certified merely because this ABI is present.
 if(FABLE2_MEMGATE71_DIAGNOSTIC)
+  if(NOT EXISTS "${FABLE2_PLUME_OVERLAY_DIR}/plume72-manifest.json")
+    message(FATAL_ERROR "Memgate72 requires verified Plume72 real-path overlay")
+  endif()
+  target_compile_definitions(rexgpu-plume PRIVATE FABLE2_MEMGATE71_DIAGNOSTIC=1)
   target_sources(rexgpu-plume PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/fable_memgate71_gpu.cpp")
   target_include_directories(rexgpu-plume PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../sdk")
   target_link_libraries(rexgpu-plume PRIVATE fable2_memgate71)

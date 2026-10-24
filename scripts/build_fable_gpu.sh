@@ -93,11 +93,23 @@ python3 "$root/scripts/apply_fable_plume61.py" \
   --xerenge-root "$root/external/Xerenge" \
   --base-overlay "$plume55_overlay" --overlay "$plume_overlay"
 if [[ "${FABLE2_MEMGATE71_DIAGNOSTIC:-0}" == "1" ]]; then
+  # Memgate72: new isolated Plume overlay; stage61 remains hash-verified.
+  plume72_overlay="$root/build/fable2-plume-overlay-72"
+  python3 "$root/scripts/apply_fable_plume72.py" \
+    --base-overlay "$plume_overlay" --overlay "$plume72_overlay"
+  python3 "$root/scripts/apply_fable_plume72.py" \
+    --base-overlay "$plume_overlay" --overlay "$plume72_overlay" --check \
+    --report "$root/build/memgate72-plume-hooks.json"
+  plume_overlay="$plume72_overlay"
   # The SDK must enroll real guest/runtime writer scopes as well as Plume ABI.
   if ! python3 "$root/scripts/patch_rex_memgate71_sdk.py" --sdk "$REXSDK_DIR" --check >/dev/null 2>&1; then
     python3 "$root/scripts/patch_rex_memgate71_sdk.py" --sdk "$REXSDK_DIR"
   fi
   python3 "$root/scripts/patch_rex_memgate71_sdk.py" --sdk "$REXSDK_DIR" --check
+  if ! python3 "$root/scripts/patch_rex_memgate72_sdk.py" --sdk "$REXSDK_DIR" --check >/dev/null 2>&1; then
+    python3 "$root/scripts/patch_rex_memgate72_sdk.py" --sdk "$REXSDK_DIR"
+  fi
+  python3 "$root/scripts/patch_rex_memgate72_sdk.py" --sdk "$REXSDK_DIR" --check
 fi
 build="$root/build/fable2-gpu-android-arm64"
 cmake -S "$root/port/gpu" -B "$build" -G Ninja \

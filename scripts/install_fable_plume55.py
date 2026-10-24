@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Layer overlay55 after 53 without modifying the Xerenge source tree."""
 import argparse
+import runpy
 from pathlib import Path
 
 MARK='FABLE2_PLUME_55_BUILDSCRIPT'
@@ -25,7 +26,9 @@ def run(root:Path,check:bool):
     if not path.is_file(): raise ValueError('Fable GPU build script missing')
     contents=path.read_text()
     if MARK in contents:
-        if contents.count(MARK)!=1 or contents.count(AFTER)!=1 or BEFORE in contents:
+        downstream=runpy.run_path(str(Path(__file__).with_name('normalize_fable_plume_build.py')))
+        canonical=downstream['canonical_stage55'](contents)
+        if canonical.count(MARK)!=1 or canonical.count(AFTER)!=1 or BEFORE in canonical:
             raise ValueError('Installed overlay55 script modified')
         print('PASS: Plume55 script already installed, verified')
         return
