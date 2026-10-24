@@ -1,0 +1,32 @@
+name: Fable II Memgate71 - cross-DSO cooperative gate tests
+
+on:
+  push:
+    paths:
+      - 'port/sdk/fable_memgate71.*'
+      - 'port/sdk/fable_memexport_writer66.h'
+      - 'port/gpu/fable_memgate71_gpu.cpp'
+      - 'scripts/patch_rex_memgate71_sdk.py'
+      - 'scripts/install_memgate71_guest_cmake.py'
+      - 'tests/test_memgate71.py'
+      - '.github/workflows/test-fable-memgate71.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  memgate71-host-abi:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Host shared-gate, two-DSO and SDK/CMake tests
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tests -p 'test_memgate71.py' -v
+          python3 -m unittest discover -s tests -p 'test_memexport66.py' -v
+          python3 -m unittest discover -s tests -p 'test_memexport70.py' -v
+      - name: No game source is needed for these tests
+        run: |
+          echo 'Memgate71 remains diagnostic; five GPU MemExport shaders still blocked.' >> "$GITHUB_STEP_SUMMARY"

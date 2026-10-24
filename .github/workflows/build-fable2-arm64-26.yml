@@ -12,6 +12,11 @@ on:
         required: false
         default: false
         type: boolean
+      memgate71_diagnostic:
+        description: 'Linkar memoria compartilhada Memgate71 (diagnostico, RAM commits bloqueados)'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -94,18 +99,26 @@ jobs:
         env:
           BUILD_JOBS: '2'
           FABLE2_MEMEXPORT70_DIAGNOSTIC: ${{ inputs.memexport70_diagnostic && '1' || '0' }}
+          FABLE2_MEMGATE71_DIAGNOSTIC: ${{ inputs.memgate71_diagnostic && '1' || '0' }}
         run: |
           set -euo pipefail
           export REXSDK_DIR="$GITHUB_WORKSPACE/build/deps/rexglue-xerenge"
           export FABLE2_GAME_ROOT="$GITHUB_WORKSPACE/build/private-game"
           export FABLE2_PRIVATE_CPP_ZIP="$GITHUB_WORKSPACE/build/private-input/Fable2-Cpp-Real-Gerado-PRIVADO-24.zip"
+          if [[ "$FABLE2_MEMGATE71_DIAGNOSTIC" == "1" && "$FABLE2_MEMEXPORT70_DIAGNOSTIC" != "1" ]]; then
+            echo 'BLOCKED: Memgate71 requires MemExport70 diagnostic mode'; exit 2
+          fi
           if [[ "$FABLE2_MEMEXPORT70_DIAGNOSTIC" == "1" ]]; then
             # Compiler diagnostics may reveal private C++: NEVER print in public Actions logs.
             if ! bash scripts/build_android_native.sh > build/private-input/memexport70-build.log 2>&1; then
-              echo 'BLOCKED: private MemExport70 ARM64 build failed; log stays private.'
+              echo 'BLOCKED: private MemExport70/71 ARM64 build failed; log stays private.'
               exit 2
             fi
             test -s build/memexport70-guest-build-report.json
+            if [[ "$FABLE2_MEMGATE71_DIAGNOSTIC" == "1" ]]; then
+              test -s build/fable2-android-arm64/libfable2_memgate71.so
+              test -s build/memgate71-guest-abi.json
+            fi
           else
             bash scripts/build_android_native.sh
           fi
@@ -143,17 +156,34 @@ jobs:
           test -s build/fable2-android-arm64/libfable2.so
           if [[ "${{ inputs.memexport70_diagnostic }}" == "true" ]]; then
             # Never overwrite the original game library with experimental code.
-            cp build/fable2-android-arm64/libfable2.so \
-              build/private-input/libfable2-MemExport70-DIAGNOSTICO.so
             cp build/memexport70-guest-build-report.json \
               build/private-input/Fable2-MemExport70-RELATORIO-PRIVADO.json
-            gh release upload "$RELEASE_TAG" \
-              build/private-input/libfable2-MemExport70-DIAGNOSTICO.so \
-              build/private-input/Fable2-MemExport70-RELATORIO-PRIVADO.json \
-              build/private-input/Fable2-MemExport70-CONTEXTOS-PRIVADO.json \
-              build/Fable2-MemExport70-AMOSTRAS-PRIVADAS.txt \
-              --repo "$PRIVATE_REPO" --clobber
-            echo 'MemExport70 guest diagnostic ARM64 compiled; guest RAM commits remain DISABLED. Normal libfable2.so unchanged.' >> "$GITHUB_STEP_SUMMARY"
+            if [[ "${{ inputs.memgate71_diagnostic }}" == "true" ]]; then
+              test -s build/fable2-android-arm64/libfable2_memgate71.so
+              cp build/memgate71-guest-abi.json \
+                build/private-input/Fable2-Memgate71-ABI-PRIVADO.json
+              cp build/fable2-android-arm64/libfable2.so \
+                build/private-input/libfable2-Memgate71-DIAGNOSTICO.so
+              gh release upload "$RELEASE_TAG" \
+                build/private-input/libfable2-Memgate71-DIAGNOSTICO.so \
+                build/fable2-android-arm64/libfable2_memgate71.so \
+                build/private-input/Fable2-Memgate71-ABI-PRIVADO.json \
+                build/private-input/Fable2-MemExport70-RELATORIO-PRIVADO.json \
+                build/private-input/Fable2-MemExport70-CONTEXTOS-PRIVADO.json \
+                build/Fable2-MemExport70-AMOSTRAS-PRIVADAS.txt \
+                --repo "$PRIVATE_REPO" --clobber
+              echo 'Memgate71 shared gate compiled; GPU RAM commits DISABLED; no production asset overwritten.' >> "$GITHUB_STEP_SUMMARY"
+            else
+              cp build/fable2-android-arm64/libfable2.so \
+                build/private-input/libfable2-MemExport70-DIAGNOSTICO.so
+              gh release upload "$RELEASE_TAG" \
+                build/private-input/libfable2-MemExport70-DIAGNOSTICO.so \
+                build/private-input/Fable2-MemExport70-RELATORIO-PRIVADO.json \
+                build/private-input/Fable2-MemExport70-CONTEXTOS-PRIVADO.json \
+                build/Fable2-MemExport70-AMOSTRAS-PRIVADAS.txt \
+                --repo "$PRIVATE_REPO" --clobber
+              echo 'MemExport70 guest diagnostic ARM64 compiled; guest RAM commits remain DISABLED. Normal libfable2.so unchanged.' >> "$GITHUB_STEP_SUMMARY"
+            fi
           else
             gh release upload "$RELEASE_TAG" \
               build/fable2-android-arm64/libfable2.so \

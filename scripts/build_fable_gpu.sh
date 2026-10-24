@@ -92,6 +92,13 @@ plume_overlay="$root/build/fable2-plume-overlay-61"
 python3 "$root/scripts/apply_fable_plume61.py" \
   --xerenge-root "$root/external/Xerenge" \
   --base-overlay "$plume55_overlay" --overlay "$plume_overlay"
+if [[ "${FABLE2_MEMGATE71_DIAGNOSTIC:-0}" == "1" ]]; then
+  # The SDK must enroll real guest/runtime writer scopes as well as Plume ABI.
+  if ! python3 "$root/scripts/patch_rex_memgate71_sdk.py" --sdk "$REXSDK_DIR" --check >/dev/null 2>&1; then
+    python3 "$root/scripts/patch_rex_memgate71_sdk.py" --sdk "$REXSDK_DIR"
+  fi
+  python3 "$root/scripts/patch_rex_memgate71_sdk.py" --sdk "$REXSDK_DIR" --check
+fi
 build="$root/build/fable2-gpu-android-arm64"
 cmake -S "$root/port/gpu" -B "$build" -G Ninja \
   -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake" \
@@ -109,7 +116,9 @@ cmake -S "$root/port/gpu" -B "$build" -G Ninja \
   -DFABLE2_PLUME_OVERLAY_DIR="$plume_overlay" \
   -DFABLE2_PLUME_DRAW_CPP="$plume_overlay/plume_draw.cpp" \
   -DFABLE2_PLUME_GRAPHICS_CPP="$plume_overlay/plume_graphics_system.cpp" \
-  -DFABLE2_RUNTIME_SHADER_CACHE_CPP="${FABLE2_RUNTIME_SHADER_CACHE_CPP:-}"
+  -DFABLE2_RUNTIME_SHADER_CACHE_CPP="${FABLE2_RUNTIME_SHADER_CACHE_CPP:-}" \
+  -DFABLE2_MEMGATE71_DIAGNOSTIC="${FABLE2_MEMGATE71_DIAGNOSTIC:-0}" \
+  -DFABLE2_MEMGATE71_LIB="${FABLE2_MEMGATE71_LIB:-}"
 cmake --build "$build" --target rexgpu-plume --parallel "${BUILD_JOBS:-2}"
 [[ -s "$build/librexgpu-plume.so" ]] || { echo 'Expected GPU library was not created' >&2; exit 2; }
 file "$build/librexgpu-plume.so" || true

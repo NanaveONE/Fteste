@@ -5,6 +5,9 @@
 #include <atomic>
 #include <cstdint>
 #include <utility>
+#ifdef FABLE2_MEMGATE71_DIAGNOSTIC
+#include "fable_memgate71.h"
+#endif
 
 namespace fable2::memexport66 {
 
@@ -26,6 +29,11 @@ inline Counters& GetCounters() noexcept {
 template <class Fn>
 decltype(auto) ObserveWrite(Kind kind, Fn&& operation)
     noexcept(noexcept(std::forward<Fn>(operation)())) {
+#ifdef FABLE2_MEMGATE71_DIAGNOSTIC
+  // In addition to telemetry, participate in the SINGLE process-wide DSO gate.
+  // This does NOT certify the uninstrumented writer paths.
+  fable2::memgate71::WriterScope gate(FABLE_M71_GUEST_CALL);
+#endif
   auto& counters = GetCounters();
   if (kind == Kind::Atomic) {
     counters.atomic_calls.fetch_add(1, std::memory_order_relaxed);

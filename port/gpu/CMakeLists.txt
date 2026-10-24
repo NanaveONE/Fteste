@@ -29,6 +29,22 @@ message(STATUS "Fable II shader cache: ${FABLE2_SHADER_CACHE_CPP}")
 
 # ReXGlue GPU ABI and runtime MUST be the same source build used for libfable2
 # and librexruntime. API header equality by itself is insufficient.
+if(FABLE2_MEMGATE71_DIAGNOSTIC)
+  # Import the SAME gate DSO before adding the SDK; the diagnostic ReXGlue
+  # CMake hook links to it rather than compiling a second process-wide gate.
+  if(NOT ANDROID OR NOT IS_ABSOLUTE "${FABLE2_MEMGATE71_LIB}" OR
+     NOT EXISTS "${FABLE2_MEMGATE71_LIB}")
+    message(FATAL_ERROR "Memgate71 GPU requires the exact guest gate .so")
+  endif()
+  file(READ "${REXSDK_DIR}/CMakeLists.txt" _fable_sdk_cmake)
+  if(NOT _fable_sdk_cmake MATCHES "FABLE2_MEMGATE71_SHARED_RUNTIME")
+    message(FATAL_ERROR "ReXGlue Memgate71 pinned SDK scopes not installed")
+  endif()
+  set(FABLE2_MEMGATE71_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/../sdk/fable_memgate71.cpp")
+  set(FABLE2_MEMGATE71_INCLUDE "${CMAKE_CURRENT_SOURCE_DIR}/../sdk")
+  add_library(fable2_memgate71 SHARED IMPORTED GLOBAL)
+  set_target_properties(fable2_memgate71 PROPERTIES IMPORTED_LOCATION "${FABLE2_MEMGATE71_LIB}")
+endif()
 add_subdirectory("${REXSDK_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/rexglue-sdk")
 set(PLUME_SDL_VULKAN_ENABLED OFF CACHE BOOL "" FORCE)
 set(PLUME_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
@@ -134,6 +150,15 @@ target_include_directories(fable2-etcpak PUBLIC "${ETCPAK}")
 
 target_link_libraries(rexgpu-plume PRIVATE plume rex::runtime
   libzstd xxHash::xxhash fable2-etcpak z)
+
+# Memgate71: link the EXACT shared gate DSO used by the guest/runtime bundle.
+# Entry/exit callbacks are opt-in; real Plume queue/DMA scope coverage is NOT
+# certified merely because this ABI is present.
+if(FABLE2_MEMGATE71_DIAGNOSTIC)
+  target_sources(rexgpu-plume PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/fable_memgate71_gpu.cpp")
+  target_include_directories(rexgpu-plume PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../sdk")
+  target_link_libraries(rexgpu-plume PRIVATE fable2_memgate71)
+endif()
 
 if(ANDROID)
   set(ADRENO_ROOT "${XERENGE_REXGLUE}/android/thirdparty/libadrenotools")

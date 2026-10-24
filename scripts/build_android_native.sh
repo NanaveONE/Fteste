@@ -76,6 +76,13 @@ fi
 if [[ "$memexport70_mode" == "1" && -z "${FABLE2_PRIVATE_CPP_ZIP:-}" ]]; then
     echo 'BLOCKED: MemExport70 requires original verified private generated C++ ZIP' >&2; exit 2
 fi
+memgate71_mode="${FABLE2_MEMGATE71_DIAGNOSTIC:-0}"
+if [[ "$memgate71_mode" != "0" && "$memgate71_mode" != "1" ]]; then
+    echo 'BLOCKED: FABLE2_MEMGATE71_DIAGNOSTIC must be 0 or 1' >&2; exit 2
+fi
+if [[ "$memgate71_mode" == "1" && "$memexport70_mode" != "1" ]]; then
+    echo 'BLOCKED: Memgate71 requires the private MemExport70 guest build' >&2; exit 2
+fi
 private_cpp_mode=OFF
 if [[ -n "${FABLE2_PRIVATE_CPP_ZIP:-}" ]]; then
     private_cpp_mode=ON
@@ -129,6 +136,15 @@ elif [[ -f "$work/generated/default/fable_memexport_writer66.h" ]]; then
     exit 2
 fi
 
+# Memgate71 is a real shared C ABI but diagnostic-only. SDK runtime scopes and
+# guest CMake hooks are installed ONLY in ignored, isolated build/ checkouts.
+if [[ "$memgate71_mode" == "1" ]]; then
+    python3 "$root/scripts/patch_rex_memgate71_sdk.py" --sdk "$REXSDK_DIR"
+    python3 "$root/scripts/patch_rex_memgate71_sdk.py" --sdk "$REXSDK_DIR" --check
+    python3 "$root/scripts/install_memgate71_guest_cmake.py" --worktree "$work"
+    python3 "$root/scripts/install_memgate71_guest_cmake.py" --worktree "$work" --check
+fi
+
 python3 "$root/scripts/fix_fable2_gpu_progress_34.py" --worktree "$work"
 python3 "$root/scripts/fix_fable2_frame_limiter_35.py" --worktree "$work"
 
@@ -169,10 +185,18 @@ cmake -S "$work" -B "$build" -G Ninja \
     -DREXSDK_DIR="$REXSDK_DIR" \
     -DFABLE2_CODEGEN_TOOL= \
     -DREXGLUE_CODEGEN="${FABLE2_CODEGEN_TOOL:-}" \
-    -DFABLE2_PRIVATE_CPP_IMPORTED="$private_cpp_mode"
+    -DFABLE2_PRIVATE_CPP_IMPORTED="$private_cpp_mode" \
+    -DFABLE2_MEMGATE71_DIAGNOSTIC="$memgate71_mode" \
+    -DFABLE2_MEMGATE71_SOURCE="$root/port/sdk/fable_memgate71.cpp" \
+    -DFABLE2_MEMGATE71_INCLUDE="$root/port/sdk"
 # Keep going after independent compile errors to collect multiple diagnostics
 # in one GitHub Actions run. Ninja's -k 0 stops only when no more progress is possible.
 cmake --build "$build" --target fable_2 --parallel "${BUILD_JOBS:-2}" -- -k 0
+if [[ "$memgate71_mode" == "1" ]]; then
+    test -s "$build/libfable2_memgate71.so" || {
+        echo 'BLOCKED: shared diagnostic gate .so was not produced' >&2; exit 2;
+    }
+fi
 
 # Fail closed if the actual guest library was not produced, is not AArch64,
 # or is incompatible with Android 16 KiB page-size devices.
@@ -192,6 +216,11 @@ readelf_bin="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-re
 # SIGPIPE in readelf after grep exits early, causing a false build failure.
 python3 "$root/scripts/check_fable2_sdl_export_38.py" \
     --file "$game_so" --readelf "$readelf_bin"
+if [[ "$memgate71_mode" == "1" ]]; then
+    python3 "$root/scripts/check_memgate71_abi.py" \
+      --guest "$game_so" --gate "$build/libfable2_memgate71.so" \
+      --readelf "$readelf_bin" --report "$root/build/memgate71-guest-abi.json"
+fi
 echo "OK: verified real ARM64 guest library at $game_so"
 echo 'Native compile command completed. This does NOT prove Fable II is playable.'
 echo 'Before packaging you must build a Fable-compatible librexgpu-plume.so'

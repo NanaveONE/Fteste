@@ -49,6 +49,16 @@ python3 "$root/scripts/patch_android_timer_thread.py" --sdk "$sdk" --root "$root
 python3 "$root/scripts/patch_rex_memexport62.py" --sdk "$sdk" --root "$root"
 python3 "$root/scripts/patch_rex_memexport62.py" --sdk "$sdk" --root "$root" --check \
   --report "$root/build/rexglue-memexport62-instrumentation.json"
+memgate71_mode="${FABLE2_MEMGATE71_DIAGNOSTIC:-0}"
+if [[ "$memgate71_mode" != "0" && "$memgate71_mode" != "1" ]]; then
+  echo 'BLOCKED: invalid Memgate71 runtime mode' >&2; exit 2
+fi
+if [[ "$memgate71_mode" == "1" ]]; then
+  if ! python3 "$root/scripts/patch_rex_memgate71_sdk.py" --sdk "$sdk" --check >/dev/null 2>&1; then
+    python3 "$root/scripts/patch_rex_memgate71_sdk.py" --sdk "$sdk"
+  fi
+  python3 "$root/scripts/patch_rex_memgate71_sdk.py" --sdk "$sdk" --check
+fi
 python3 "$root/scripts/audit_android_sdk.py" --sdk "$sdk" \
   --json "$root/build/rexglue-android-sdk-audit.json"
 # ABI59: libfable2.so needs real rex::perf::GetSnapshotCounter.
@@ -61,8 +71,16 @@ cmake -S "$sdk" -B "$build" -G Ninja \
   -DREXGLUE_ENABLE_TRACY=OFF -DREXGLUE_ENABLE_PERF_COUNTERS=ON \
   -DREXGLUE_ARM64_MARCH=armv8-a \
   -DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON \
-  '-DCMAKE_SHARED_LINKER_FLAGS=-Wl,-z,max-page-size=16384'
+  '-DCMAKE_SHARED_LINKER_FLAGS=-Wl,-z,max-page-size=16384' \
+  -DFABLE2_MEMGATE71_DIAGNOSTIC="$memgate71_mode" \
+  -DFABLE2_MEMGATE71_SOURCE="$root/port/sdk/fable_memgate71.cpp" \
+  -DFABLE2_MEMGATE71_INCLUDE="$root/port/sdk"
 cmake --build "$build" --target rexruntime --parallel "${BUILD_JOBS:-2}"
+if [[ "$memgate71_mode" == "1" ]]; then
+  test -s "$build/libfable2_memgate71.so" || {
+    echo 'BLOCKED: runtime Memgate71 shared DSO not produced' >&2; exit 2;
+  }
+fi
 # Upstream CMakeList.txt deliberately emits shared libraries OUTSIDE the
 # -B binary directory: ${REXGLUE_ROOT}/out/${REX_PLATFORM}/librexruntime.so.
 # Package the freshly built ARM64 output with dependency closure and an ELF
@@ -79,6 +97,9 @@ python3 "$root/scripts/package_rexruntime_arm64.py" \
   echo 'BLOCKED: verified ARM64 runtime was not staged into build/artifacts' >&2
   exit 2
 }
+if [[ "$memgate71_mode" == "1" ]]; then
+  cp "$build/libfable2_memgate71.so" "$artifact/libfable2_memgate71.so"
+fi
 # # FTESTE_REXRUNTIME_16K_39: reject 4-KiB ELF PT_LOAD segments before uploading the artifact.
 python3 "$root/scripts/check_android_16k_alignment.py" \
   --directory "$artifact" \
