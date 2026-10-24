@@ -1,0 +1,21 @@
+name: Fable II MemExport60 - physical memory adapter unit tests
+on:
+  push:
+    paths:
+      - 'port/gpu/fable_memexport_rex60.h'
+      - 'tests/stubs/rex/system/xmemory.h'
+      - 'tests/test_memexport60.cpp'
+      - '.github/workflows/test-fable-memexport60.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile and execute fail-closed MemExport60 adapter tests
+        run: |
+          c++ -std=c++20 -Wall -Wextra -Werror -Itests/stubs \
+            tests/test_memexport60.cpp -o /tmp/test_memexport60
+          /tmp/test_memexport60
