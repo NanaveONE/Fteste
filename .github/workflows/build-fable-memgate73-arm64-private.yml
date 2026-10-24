@@ -1,0 +1,229 @@
+name: Fable II Memgate73 - ARM64 runtime + Plume72 privado
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release PRIVADA com guest Memgate71, shaders e diagnóstico43'
+        required: true
+        type: string
+        default: guest-input-26
+      xenos_run_id:
+        description: 'Execução anterior com tradutor Linux XenosRecomp+DXC'
+        required: true
+        type: string
+        default: '39971826822'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  memgate73-diagnostic:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    steps:
+      - name: Obter repositório público e submódulos
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Preparar Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Instalar NDK r27c e ferramentas de compilação
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ninja-build cmake clang libzstd1 unzip
+          sdkmanager_bin="${ANDROID_HOME:?Android SDK ausente}/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$sdkmanager_bin" || { echo 'BLOCKED: sdkmanager ausente'; exit 2; }
+          "$sdkmanager_bin" --install 'ndk;27.2.12479018' 'platforms;android-35'
+          test -f "$ANDROID_HOME/ndk/27.2.12479018/build/cmake/android.toolchain.cmake"
+          echo "ANDROID_NDK_HOME=${ANDROID_HOME}/ndk/27.2.12479018" >> "$GITHUB_ENV"
+          echo 'BUILD_JOBS=2' >> "$GITHUB_ENV"
+
+      - name: Clonar fontes públicos e SDK ReXGlue fixado
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/deps build/private-memgate73
+          git clone https://github.com/shipa-2/rexglue-xerenge.git build/deps/rexglue-xerenge
+          git -C build/deps/rexglue-xerenge checkout 3452b5ae307b5f71468cc8b9f18e7d7e0d4c245b
+          git -C build/deps/rexglue-xerenge submodule update --init --recursive
+          git clone --depth 1 --recurse-submodules https://github.com/shipa-2/plume-xerenge.git build/deps/plume-xerenge
+          git clone --depth 1 --recurse-submodules https://github.com/shipa-2/XenosRecomp-xerenge.git build/deps/XenosRecomp-xerenge
+          echo "REXSDK_DIR=$GITHUB_WORKSPACE/build/deps/rexglue-xerenge" >> "$GITHUB_ENV"
+          echo "PLUME_ROOT=$GITHUB_WORKSPACE/build/deps/plume-xerenge" >> "$GITHUB_ENV"
+          echo "XENOS_RECOMP_ROOT=$GITHUB_WORKSPACE/build/deps/XenosRecomp-xerenge" >> "$GITHUB_ENV"
+
+      - name: Baixar SOMENTE guest e gate de diagnóstico da release privada
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.FABLE2_PRIVATE_TOKEN }}
+          PRIVATE_REPO: NanaveONE/Fable2-Arquivos-Privados
+          TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          test -n "$GH_TOKEN" || { echo 'BLOCKED: FABLE2_PRIVATE_TOKEN ausente'; exit 2; }
+          mkdir -p build/private-memgate73
+          for file in \
+            libfable2-Memgate71-DIAGNOSTICO.so \
+            libfable2_memgate71.so \
+            Shaders.sbk ShadersRelease.sbk \
+            Fable2-MemExport-DIAGNOSTICO-43.zip; do
+            gh release download "$TAG" --repo "$PRIVATE_REPO" \
+              --pattern "$file" --dir build/private-memgate73
+            test -s "build/private-memgate73/$file" || { echo 'BLOCKED: entrada privada ausente'; exit 2; }
+          done
+          echo 'PASS: 2 binários Memgate71 e 3 entradas shader recebidos, sem exibir conteúdo.'
+
+      - name: Obter tradutor Linux XenosRecomp + DXC
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          XENOS_RUN: ${{ inputs.xenos_run_id }}
+        run: |
+          set -euo pipefail
+          [[ "$XENOS_RUN" =~ ^[0-9]+$ ]] || { echo 'BLOCKED: Xenos run inválido'; exit 2; }
+          mkdir -p build/xenos-host
+          gh run download "$XENOS_RUN" --repo "$GITHUB_REPOSITORY" \
+            --name XenosRecomp-Linux-x86_64-DXC --dir build/xenos-host
+          test -s build/xenos-host/XenosRecomp
+          test -s build/xenos-host/libdxcompiler.so
+          test -s build/xenos-host/shader_common.h
+          chmod +x build/xenos-host/XenosRecomp
+
+      - name: Traduzir shaders privados e validar cache incompleto 583/588
+        shell: bash
+        run: |
+          set -euo pipefail
+          export LD_LIBRARY_PATH="$GITHUB_WORKSPACE/build/xenos-host:${LD_LIBRARY_PATH:-}"
+          if ! python3 scripts/fable_shader_1d_compat.py \
+            --header build/xenos-host/shader_common.h \
+            --output build/xenos-host/shader_common_fable_1d.h \
+            > build/private-memgate73/shader-compat.log 2>&1; then
+            echo 'BLOCKED: ajuste shader falhou; saída reservada à release privada.'; exit 2
+          fi
+          if ! python3 scripts/generate_fable_shaders.py \
+            --shader-banks build/private-memgate73/Shaders.sbk \
+              build/private-memgate73/ShadersRelease.sbk \
+            --output build/fable2-shaders \
+            --translator "$GITHUB_WORKSPACE/build/xenos-host/XenosRecomp" \
+            --header "$GITHUB_WORKSPACE/build/xenos-host/shader_common_fable_1d.h" \
+            > build/private-memgate73/translate.log 2>&1; then
+            echo 'BLOCKED: tradução shader privada falhou; veja log na release privada.'; exit 2
+          fi
+          if ! python3 scripts/validate_gpu_probe56.py \
+            --cache build/fable2-shaders/shader_cache.cpp \
+            --scan-dir build/fable2-shaders/xenos-scan \
+            --shader-report build/fable2-shaders/fable-shader-report.json \
+            --diagnostic build/private-memgate73/Fable2-MemExport-DIAGNOSTICO-43.zip \
+            --report build/fable2-shaders/gpu-probe56-report.json \
+            > build/private-memgate73/shader-verify.log 2>&1; then
+            echo 'BLOCKED: identidades dos 583 shaders não correspondem ao diagnóstico43.'; exit 2
+          fi
+          echo 'PASS: cache de diagnóstico 583/588; faltam cinco shaders MemExport.'
+
+      - name: Compilar REAL ReXGlue ARM64 com escopos Memgate71/72
+        shell: bash
+        env:
+          FABLE2_MEMGATE71_DIAGNOSTIC: '1'
+        run: |
+          set -euo pipefail
+          if ! bash scripts/build_rexglue_android_sdk.sh \
+            > build/private-memgate73/runtime-build.log 2>&1; then
+            echo 'BLOCKED: compilação runtime com hooks 71/72 falhou; log privado.'; exit 2
+          fi
+          test -s build/artifacts/rexglue-android-arm64/librexruntime.so
+          test -s build/artifacts/rexglue-android-arm64/libfable2_memgate71.so
+          test -s build/memgate72-rexruntime-hooks.json
+          echo 'PASS: ReXGlue ARM64 compilado com fontes instrumentados do SDK fixado.'
+
+      - name: Compilar REAL Plume72 ARM64 com mesma biblioteca guest Memgate71
+        shell: bash
+        env:
+          FABLE2_MEMGATE71_DIAGNOSTIC: '1'
+          FABLE2_GPU_PROBE56: '1'
+          FABLE2_GPU_DIAGNOSTIC43_ZIP: ${{ github.workspace }}/build/private-memgate73/Fable2-MemExport-DIAGNOSTICO-43.zip
+          FABLE2_MEMGATE71_LIB: ${{ github.workspace }}/build/private-memgate73/libfable2_memgate71.so
+        run: |
+          set -euo pipefail
+          if ! bash scripts/build_fable_gpu.sh \
+            > build/private-memgate73/gpu-build.log 2>&1; then
+            echo 'BLOCKED: compilação GPU Plume72 ARM64 falhou; log privado.'; exit 2
+          fi
+          test -s build/fable2-gpu-android-arm64/librexgpu-plume.so
+          test -s build/memgate72-plume-hooks.json
+          test -s build/fable2-plume-overlay-72/plume72-manifest.json
+          echo 'PASS: GPU Plume72 ARM64 compilada e hooks de PM4 registrados.'
+
+      - name: Conferir DT_NEEDED, símbolos, ABI59, 16 KiB e montar ZIP privado
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! python3 scripts/package_memgate73_private.py \
+            --guest build/private-memgate73/libfable2-Memgate71-DIAGNOSTICO.so \
+            --guest-gate build/private-memgate73/libfable2_memgate71.so \
+            --gpu build/fable2-gpu-android-arm64/librexgpu-plume.so \
+            --runtime-dir build/artifacts/rexglue-android-arm64 \
+            --runtime-report build/memgate72-rexruntime-hooks.json \
+            --plume-report build/memgate72-plume-hooks.json \
+            --shader-report build/fable2-shaders/gpu-probe56-report.json \
+            --output build/private-memgate73/Fable2-Memgate73-ARM64-DIAGNOSTICO-PRIVADO.zip \
+            --readelf "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf" \
+            > build/private-memgate73/abi73.log 2>&1; then
+            echo 'BLOCKED: dependência/ABI/16 KiB não validada; relatório guardado privado.'; exit 2
+          fi
+          test -s build/private-memgate73/Fable2-Memgate73-ARM64-DIAGNOSTICO-PRIVADO.zip
+          echo 'PASS: cinco bibliotecas e dependências ARM64 verificadas; NÃO é APK.'
+
+      - name: Enviar resultado SOMENTE à release privada
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.FABLE2_PRIVATE_TOKEN }}
+          PRIVATE_REPO: NanaveONE/Fable2-Arquivos-Privados
+          TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          test -n "$GH_TOKEN" || { echo 'BLOCKED: token privado ausente'; exit 2; }
+          gh release upload "$TAG" \
+            build/private-memgate73/Fable2-Memgate73-ARM64-DIAGNOSTICO-PRIVADO.zip \
+            --repo "$PRIVATE_REPO" --clobber
+          echo 'Memgate73: convidado, runtime, GPU e único gate ABI verificados em ARM64; 583/588 shaders, NÃO jogável.' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Guardar logs de falha SOMENTE na release privada
+        if: failure()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.FABLE2_PRIVATE_TOKEN }}
+          PRIVATE_REPO: NanaveONE/Fable2-Arquivos-Privados
+          TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$GH_TOKEN" || ! -d build/private-memgate73 ]]; then exit 0; fi
+          python3 - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile, ZIP_DEFLATED
+          d = Path('build/private-memgate73')
+          logs = sorted(d.glob('*.log'))
+          if logs:
+              with ZipFile(d/'Fable2-Memgate73-LOGS-PRIVADO.zip','x',ZIP_DEFLATED) as z:
+                  for f in logs:
+                      z.write(f, f.name)
+          PY
+          if [[ -s build/private-memgate73/Fable2-Memgate73-LOGS-PRIVADO.zip ]]; then
+            gh release upload "$TAG" \
+              build/private-memgate73/Fable2-Memgate73-LOGS-PRIVADO.zip \
+              --repo "$PRIVATE_REPO" --clobber
+          fi
+
+      - name: Aviso de segurança
+        if: always()
+        shell: bash
+        run: |
+          echo 'Somente upload privado. Fontes C++, SBK, logs e binários comerciais NUNCA são artefatos públicos.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Sem certificação de DMA, fences Vulkan, GPU MemExport, gameplay ou APK.' >> "$GITHUB_STEP_SUMMARY"

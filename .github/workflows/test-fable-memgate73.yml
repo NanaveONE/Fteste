@@ -1,0 +1,29 @@
+name: Fable II Memgate73 - private ARM64 package safety tests
+
+on:
+  push:
+    paths:
+      - 'scripts/package_memgate73_private.py'
+      - 'tests/test_memgate73.py'
+      - 'docs/FABLE2-MEMGATE73.md'
+      - '.github/workflows/build-fable-memgate73-arm64-private.yml'
+      - '.github/workflows/test-fable-memgate73.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  memgate73-public-safety:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validar ZIP privado, ELF, ABI e segurança do workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tests -p 'test_memgate73.py' -v
+          python3 -m py_compile scripts/package_memgate73_private.py
+          python3 -m unittest discover -s tests -p 'test_memgate72.py' -v
+          python3 -m unittest discover -s tests -p 'test_memgate71.py' -v
+          echo 'PASS: Memgate73 packaging tests. Real NDK build requires private workflow.' >> "$GITHUB_STEP_SUMMARY"
