@@ -36,6 +36,19 @@ def evidence():
     return cache,report,diag,stats
 
 
+def fake_cpp_cache(*, offset_shift=0, mutate_index=None, path_prefix=''):
+    """Public, synthetic entry table; contains NO actual shader bytes."""
+    entries = []
+    for i in range(583):
+        stage = 'VS' if i < 132 else 'PS'
+        input_hash = i + (10000 if i == mutate_index else 0)
+        filename = f'{path_prefix}{stage}_{input_hash:064x}.bin'
+        entries.append(f'{{ 0x{i:016X}, 0, 0, {i*32+offset_shift}, 32, 0, 0, 0, "{filename}" }},')
+    return ('ShaderCacheEntry g_shaderCacheEntries[] = {\n' +
+            '\n'.join(entries) + '\n};\n' +
+            f'// synthetic compiler change: {offset_shift}\n').encode()
+
+
 class ProbeTests(unittest.TestCase):
     def test_strict_evidence_passes_and_is_not_production(self):
         cache, report, diag, stats = evidence()
@@ -67,6 +80,26 @@ class ProbeTests(unittest.TestCase):
             if mutation=='drift':old=b'different-cpp-cache'
             with self.subTest(mutation=mutation),self.assertRaises(probe.ProbeError):
                 probe.validate_evidence(cache,r,d,old,s)
+
+    def test_same_shader_inputs_with_different_codegen_are_probe_only(self):
+        old, new = fake_cpp_cache(), fake_cpp_cache(offset_shift=128, path_prefix='/tmp/new/')
+        _, report, diag, stats = evidence()
+        report['cache_sha256'] = hashlib.sha256(new).hexdigest()
+        result = probe.validate_evidence(new, report, diag, old, stats)
+        self.assertTrue(result['toolchain_drift_detected'])
+        self.assertFalse(result['shader_binary_equivalence_proven'])
+        self.assertFalse(result['production_approved'])
+        self.assertNotEqual(result['cache_sha256'], result['diagnostic43_cache_sha256'])
+
+    def test_reject_shader_identity_changes_even_at_same_583_count(self):
+        old = fake_cpp_cache()
+        for current in (fake_cpp_cache(offset_shift=4, mutate_index=7),
+                        fake_cpp_cache(offset_shift=4, mutate_index=500),
+                        b'ShaderCacheEntry g_shaderCacheEntries[] = {};' ):
+            _, report, diag, stats = evidence()
+            report['cache_sha256'] = hashlib.sha256(current).hexdigest()
+            with self.assertRaises(probe.ProbeError):
+                probe.validate_evidence(current, report, diag, old, stats)
 
     def test_read_only_zip_and_diagnostic_fields(self):
         with tempfile.TemporaryDirectory() as td:

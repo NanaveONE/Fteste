@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Opt-in PRIVATE GPU compiler diagnostic: accept only the known Fable II 583/588 cache.
 
-Never authorizes a production APK. It cryptographically binds the partial cache
-and original two SBK input report to the private MemExport43 failure diagnostic.
+Never authorizes a production APK. The generated cache hash is bound to the
+SBK input report, and all 583 compiled shader input identities are matched to
+the private MemExport43 cache even if generated shader bytes change.
 All actual raw shader bytes stay in ignored local build/ and private releases.
 """
 from __future__ import annotations
@@ -43,6 +44,44 @@ def require(condition: bool, message: str) -> None:
         raise ProbeError(message)
 
 
+def compiled_shader_identities(cache_bytes: bytes) -> tuple[tuple[int, str, str], ...]:
+    """Identify guest inputs, not compiler output (which can change between builds).
+
+    Each entry is keyed by XenosRecomp's shader hash, stage, and SHA-256 of
+    the original SBK container in the input filename. A changed shader set
+    is never accepted just because the number of entries is still 583.
+    """
+    try:
+        source = cache_bytes.decode('utf-8')
+    except UnicodeDecodeError as exc:
+        raise ProbeError('Invalid shader cache text') from exc
+    table = re.search(r'ShaderCacheEntry\s+g_shaderCacheEntries\s*\[\s*\]\s*=\s*\{(.*?)\}\s*;',
+                      source, re.S)
+    require(table is not None, 'Shader cache identity table missing')
+    row = re.compile(
+        r'\s*\{\s*(0[xX][\da-fA-F]+)\s*,\s*\d+\s*,\s*\d+\s*,\s*'
+        r'\d+\s*,\s*\d+\s*,\s*\d+\s*,\s*\d+\s*,\s*\d+\s*,\s*"([^"\n]+)"\s*\},?\s*')
+    identities = []
+    for line in table.group(1).splitlines():
+        if not line.strip():
+            continue
+        entry = row.fullmatch(line)
+        require(entry is not None, 'Unrecognized shader cache identity entry')
+        name = Path(entry.group(2).replace('\\', '/')).name
+        match = re.fullmatch(r'(VS|PS)_([\da-fA-F]{64})\.bin', name, re.I)
+        require(match is not None, 'Shader cache entry lacks original SBK container SHA-256')
+        identities.append((int(entry.group(1), 16), match.group(1).upper(),
+                           match.group(2).lower()))
+    require(len(identities) == COMPILED, 'Private cache does not contain exactly 583 entries')
+    require(len(set(identities)) == COMPILED and
+            len({(stage, sha) for _, stage, sha in identities}) == COMPILED,
+            'Private cache contains duplicate/conflicting shader identities')
+    require(sum(stage == 'VS' for _, stage, _ in identities) == 132 and
+            sum(stage == 'PS' for _, stage, _ in identities) == 451,
+            'Private shader identities have incorrect stage counts')
+    return tuple(sorted(identities))
+
+
 def validate_evidence(cache_bytes: bytes, shader_report: dict, diagnostic: dict,
                       original_cache: bytes, stats: dict) -> dict:
     """Pure, testable gate; no games and no private shaders are bundled here."""
@@ -69,7 +108,15 @@ def validate_evidence(cache_bytes: bytes, shader_report: dict, diagnostic: dict,
             'Missing shaders differ from five known MemExport vertex shaders')
     require(all(x.get('hlsl_found') is True for x in failed),
             'Private diagnostic has missing HLSL source')
-    require(cache_bytes == original_cache, 'Cache differs from private 43 diagnostic: toolchain drift')
+    # Binary byte equality is too strict for a re-generated cache: DXC,
+    # compression and header changes can change the output without changing
+    # the 583 guest shader inputs. Only relax it for an explicit, compiler-only
+    # diagnostic, and only if the full set of original shader identities agrees.
+    drift = cache_bytes != original_cache
+    if drift:
+        require(compiled_shader_identities(cache_bytes) ==
+                compiled_shader_identities(original_cache),
+                'Cache differs from private 43 diagnostic: shader input identities changed')
     require(stats.get('state') == 'INCOMPLETE' and stats.get('expected') == EXPECTED and
             stats.get('compiled') == COMPILED and stats.get('missing') == 5 and
             stats.get('vertex') == 132 and stats.get('pixel') == 451 and
@@ -81,9 +128,15 @@ def validate_evidence(cache_bytes: bytes, shader_report: dict, diagnostic: dict,
         'expected': EXPECTED, 'compiled': COMPILED, 'missing': 5,
         'missing_hashes': sorted(KNOWN_MISSING),
         'cache_sha256': actual_sha,
+        'diagnostic43_cache_sha256': digest(original_cache),
+        'toolchain_drift_detected': drift,
+        'shader_binary_equivalence_proven': not drift,
+        'identity_comparison': 'same 583 XenosRecomp input shader hashes, stages and SBK container SHA-256' if drift else 'byte-identical caches',
         'production_approved': False,
         'guest_memexport_execution_proven': False,
-        'notes': 'Does not enable missing five shaders; not suitable as a playable APK.',
+        'notes': ('Compiler probe only: newly generated binary shader modules are NOT '
+                  'proven equivalent to diagnostic43 when drift is detected. '
+                  'Five MemExport vertex shaders still missing; NOT a playable APK.'),
     }
 
 
@@ -118,7 +171,9 @@ def main() -> int:
     if args.report:
         args.report.parent.mkdir(parents=True, exist_ok=True)
         args.report.write_text(json.dumps(result, indent=2, ensure_ascii=False)+'\n', encoding='utf-8')
-    print('PASS: known Fable II 583/588 partial shader cache verified against private diagnostic43')
+    print('PASS: Fable II 583/588 diagnostic shader input identities verified')
+    if result['toolchain_drift_detected']:
+        print('WARNING: binary shader cache differs from diagnostic43; equivalence NOT proven')
     print('PROBE ONLY: five missing MemExport VS excluded; production/APK still forbidden')
     return 0
 
