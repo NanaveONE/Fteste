@@ -1,0 +1,19 @@
+name: Fable II MemExport68 - private opaque context hints tests
+on:
+  push:
+    paths:
+      - 'scripts/classify_memexport68_opaque_helpers.py'
+      - 'tests/test_memexport68.py'
+      - '.github/workflows/test-fable-memexport68.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate MemExport68 synthetic classification only
+        run: |
+          python3 -m unittest discover -s tests -p test_memexport68.py -v
+          python3 -m py_compile scripts/classify_memexport68_opaque_helpers.py
