@@ -1,0 +1,17 @@
+name: Fable II MemExport63 - private guest memory audit tests
+on:
+  push:
+    paths:
+      - 'scripts/audit_memexport63_guest_writes.py'
+      - 'tests/test_memexport63.py'
+      - '.github/workflows/test-fable-memexport63.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  audit-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test conservative audit without private game sources
+        run: python3 -m unittest discover -s tests -p test_memexport63.py -v
