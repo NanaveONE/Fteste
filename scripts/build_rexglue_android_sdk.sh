@@ -44,6 +44,11 @@ python3 "$root/scripts/patch_android_float_from_chars.py" --sdk "$sdk" --root "$
 # NDK r27 libc++ lacks std::jthread/stop_token; keep original host code.
 python3 "$root/scripts/patch_android_timer_thread.py" --sdk "$sdk" --root "$root"
 python3 "$root/scripts/patch_android_timer_thread.py" --sdk "$sdk" --root "$root" --check
+# FABLE2_MEMEXPORT62_SDK_AUDIT: diagnostic instrumentation only.
+# Does not certify global guest exclusion or enable MemExport commits.
+python3 "$root/scripts/patch_rex_memexport62.py" --sdk "$sdk" --root "$root"
+python3 "$root/scripts/patch_rex_memexport62.py" --sdk "$sdk" --root "$root" --check \
+  --report "$root/build/rexglue-memexport62-instrumentation.json"
 python3 "$root/scripts/audit_android_sdk.py" --sdk "$sdk" \
   --json "$root/build/rexglue-android-sdk-audit.json"
 # ABI59: libfable2.so needs real rex::perf::GetSnapshotCounter.
