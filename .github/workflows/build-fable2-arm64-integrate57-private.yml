@@ -28,7 +28,14 @@ jobs:
           set -euo pipefail
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends ninja-build cmake clang libzstd1 unzip
-          sdkmanager --install 'ndk;27.2.12479018' 'platforms;android-35'
+          # Ubuntu runners provide sdkmanager inside Android SDK command-line tools,
+          # but its directory is not guaranteed to be on PATH.
+          sdkmanager_bin="${ANDROID_HOME:?Android SDK missing}/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$sdkmanager_bin" || { echo 'BLOCKED: Android sdkmanager missing'; exit 2; }
+          "$sdkmanager_bin" --install 'ndk;27.2.12479018' 'platforms;android-35'
+          test -f "$ANDROID_HOME/ndk/27.2.12479018/build/cmake/android.toolchain.cmake" || {
+            echo 'BLOCKED: Android NDK r27c toolchain missing'; exit 2;
+          }
           echo "ANDROID_NDK_HOME=${ANDROID_HOME}/ndk/27.2.12479018" >> "$GITHUB_ENV"
           echo 'BUILD_JOBS=2' >> "$GITHUB_ENV"
 

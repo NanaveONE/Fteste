@@ -123,6 +123,10 @@ class Integration57Tests(unittest.TestCase):
         self.assertIn('gh release upload', workflow)
         self.assertIn('FABLE2_PRIVATE_TOKEN',workflow)
         self.assertIn('integrate_fable2_arm64_probe57.py',workflow)
+        self.assertIn('cmdline-tools/latest/bin/sdkmanager',workflow)
+        self.assertIn('"$sdkmanager_bin" --install',workflow)
+        self.assertIn('android.toolchain.cmake',workflow)
+        self.assertNotIn('          sdkmanager --install',workflow)
         self.assertNotIn('actions/upload-artifact',workflow)
         self.assertNotIn('package_android_apk.sh',workflow)
 
