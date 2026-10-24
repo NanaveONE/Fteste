@@ -46,12 +46,14 @@ python3 "$root/scripts/patch_android_timer_thread.py" --sdk "$sdk" --root "$root
 python3 "$root/scripts/patch_android_timer_thread.py" --sdk "$sdk" --root "$root" --check
 python3 "$root/scripts/audit_android_sdk.py" --sdk "$sdk" \
   --json "$root/build/rexglue-android-sdk-audit.json"
+# ABI59: libfable2.so needs real rex::perf::GetSnapshotCounter.
+# ReXGlue builds perf/counter.cpp only when this option is ON.
 build="$root/build/rexglue-android-arm64"
 cmake -S "$sdk" -B "$build" -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake" \
   -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-31 -DANDROID_STL=c++_shared \
-  -DREXGLUE_ENABLE_TRACY=OFF -DREXGLUE_ENABLE_PERF_COUNTERS=OFF \
+  -DREXGLUE_ENABLE_TRACY=OFF -DREXGLUE_ENABLE_PERF_COUNTERS=ON \
   -DREXGLUE_ARM64_MARCH=armv8-a \
   -DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON \
   '-DCMAKE_SHARED_LINKER_FLAGS=-Wl,-z,max-page-size=16384'

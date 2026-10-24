@@ -4,7 +4,10 @@ on:
   push:
     paths:
       - 'scripts/integrate_fable2_arm64_probe57.py'
+      - 'scripts/verify_rex_abi59.py'
+      - 'scripts/build_rexglue_android_sdk.sh'
       - 'tests/test_fable2_arm64_integrate57.py'
+      - 'tests/test_verify_rex_abi59.py'
       - 'port/android/java/com/nanaveone/fable2/Fable2Activity.java'
       - '.github/workflows/build-fable2-arm64-integrate57-private.yml'
       - '.github/workflows/test-fable2-arm64-integrate57.yml'
@@ -20,3 +23,5 @@ jobs:
       - uses: actions/checkout@v4
       - name: Testar port, ZIP privado e gate 583/588
         run: python3 -m unittest discover -s tests -p test_fable2_arm64_integrate57.py -v
+      - name: Testar verificador de simbolos do ReXGlue (sem jogo)
+        run: python3 -m unittest discover -s tests -p test_verify_rex_abi59.py -v
