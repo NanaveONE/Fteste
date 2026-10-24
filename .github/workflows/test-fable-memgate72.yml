@@ -9,6 +9,7 @@ on:
       - 'scripts/build_rexglue_android_sdk.sh'
       - 'port/gpu/CMakeLists.txt'
       - 'tests/test_memgate72.py'
+      - 'tests/test_memgate72_mapped_range_fix.py'
       - '.github/workflows/test-fable-memgate72.yml'
 permissions:
   contents: read
@@ -22,6 +23,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m unittest discover -s tests -p 'test_memgate72.py' -v
+          python3 -m unittest discover -s tests -p 'test_memgate72_mapped_range_fix.py' -v
           python3 -m unittest discover -s tests -p 'test_memgate71.py' -v
           bash -n scripts/build_rexglue_android_sdk.sh
           bash -n scripts/build_fable_gpu.sh

@@ -48,7 +48,12 @@ COMMAND_FUNCTIONS = (
 # Guest mapping is a separate category. The scope is taken before SDK locks;
 # this still does not prove all VM operations or asynchronous DMA participate.
 MEMORY_FUNCTIONS = (
-    ('bool Memory::AddVirtualMappedRange(uint32_t virtual_address, uint32_t mask, uint32_t size,\n',
+    # The pinned xmemory.cpp has a 260-byte multi-line signature. Match the
+    # ENTIRE header, including the opening brace, rather than guessing where
+    # the body begins with a 230-character lookahead.
+    ('bool Memory::AddVirtualMappedRange(uint32_t virtual_address, uint32_t mask, uint32_t size,\n'
+     '                                   void* context, runtime::MMIOReadCallback read_callback,\n'
+     '                                   runtime::MMIOWriteCallback write_callback) {\n',
      'FABLE_M71_DMA_MAPPING', 'mapped_range'),
     ('uint32_t Memory::SystemHeapAlloc(uint32_t size, uint32_t alignment, uint32_t system_heap_flags) {\n',
      'FABLE_M71_DMA_MAPPING', 'system_heap_alloc'),
@@ -75,15 +80,11 @@ def _one(content: str, needle: str, replacement: str, what: str) -> str:
 
 
 def _function(content: str, signature: str, kind: str, label: str) -> str:
-    # Multi-line methods insert after the final opening brace, not in params.
-    brace = content.find('{\n', content.find(signature))
-    if brace < 0 or brace - content.find(signature) > 230:
-        raise ValueError('Pinned function body not recognized: ' + label)
-    sigbody = content[content.find(signature):brace + 2]
-    result = (sigbody + '#if defined(FABLE2_MEMGATE71_DIAGNOSTIC)\n'
-              f'  fable2::memgate71::WriterScope fable72_{label}({kind});\n'
-              '#endif\n')
-    return _one(content, sigbody, result, label)
+    # Every pinned signature ends at the function's opening brace. An exact,
+    # unique match prevents injection into the wrong function if SDK drifts.
+    if not signature.endswith(' {\n'):
+        raise ValueError('Pinned function signature lacks opening brace: ' + label)
+    return _one(content, signature, signature + _guard(kind, label), label)
 
 
 
@@ -118,13 +119,9 @@ def _validate_installed(name: str, content: str) -> None:
         raise ValueError('Unexpected installed source')
     for signature, kind, label in groups:
         # The injected guard always immediately follows the function '{'.
-        begin = restored.find(signature)
-        if begin < 0:
-            raise ValueError('Installed scope function anchor missing: '+label)
-        brace = restored.find('{\n', begin)
-        if brace < 0 or brace - begin > 230:
-            raise ValueError('Installed function signature drift: '+label)
-        where = brace + 2
+        if not signature.endswith(' {\n') or restored.count(signature) != 1:
+            raise ValueError('Installed scope function anchor missing or drifted: '+label)
+        where = restored.index(signature) + len(signature)
         guard = _guard(kind, label)
         if not restored.startswith(guard, where):
             raise ValueError('Installed scope is absent/moved: '+label)
