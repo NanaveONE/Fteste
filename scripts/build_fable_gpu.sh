@@ -83,10 +83,15 @@ plume53_overlay="$root/build/fable2-plume-overlay-53"
 python3 "$root/scripts/apply_fable_plume53.py" \
   --xerenge-root "$root/external/Xerenge" \
   --base-overlay "$plume52_overlay" --overlay "$plume53_overlay"
-plume_overlay="$root/build/fable2-plume-overlay-55"
+plume55_overlay="$root/build/fable2-plume-overlay-55"
 python3 "$root/scripts/apply_fable_plume55.py" \
   --xerenge-root "$root/external/Xerenge" \
-  --base-overlay "$plume53_overlay" --overlay "$plume_overlay"
+  --base-overlay "$plume53_overlay" --overlay "$plume55_overlay"
+# FABLE2_PLUME_61_CERTIFIED_GATE: keep immutable 55, add opt-in bridge.
+plume_overlay="$root/build/fable2-plume-overlay-61"
+python3 "$root/scripts/apply_fable_plume61.py" \
+  --xerenge-root "$root/external/Xerenge" \
+  --base-overlay "$plume55_overlay" --overlay "$plume_overlay"
 build="$root/build/fable2-gpu-android-arm64"
 cmake -S "$root/port/gpu" -B "$build" -G Ninja \
   -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake" \

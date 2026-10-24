@@ -1,0 +1,26 @@
+name: Fable II MemExport61 - cooperative gate and Plume integration
+on:
+  push:
+    paths:
+      - 'port/gpu/fable_memexport_world61.h'
+      - 'port/gpu/fable_memexport_rex60.h'
+      - 'scripts/apply_fable_plume61.py'
+      - 'scripts/build_fable_gpu.sh'
+      - 'tests/test_memexport61.cpp'
+      - 'tests/test_memexport61.py'
+      - '.github/workflows/test-fable-memexport61.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run strict cooperative gate and overlay tests
+        run: |
+          c++ -std=c++20 -Wall -Wextra -Werror -pthread -Itests/stubs \
+            tests/test_memexport61.cpp -o /tmp/fable-memexport61-test
+          /tmp/fable-memexport61-test
+          python3 -m unittest discover -s tests -p test_memexport61.py -v
+          bash -n scripts/build_fable_gpu.sh
