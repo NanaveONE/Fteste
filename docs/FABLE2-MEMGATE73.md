@@ -50,3 +50,25 @@ Vulkan queue fence ordering, all device DMA/mapping paths, all direct guest
 stores, game output, frames/rendering, saves or audio. Importing one SONAME is
 not proof of synchronization. MemExport commits stay prohibited. An APK is
 not generated and shaders remain 583/588.
+
+## Memgate73: diagnóstico do erro de contagem no Probe56
+
+O workflow de compilação anterior falhou no Probe56 com
+`Private cache does not contain exactly 583 entries`, antes de compilar o
+runtime/Plume. A etapa de reconciliação registra **somente metadados** em
+`cache-reconcile.json`, preservados dentro de
+`Fable2-Memgate73-LOGS-PRIVADO.zip` na release privada quando a compilação falha.
+
+- 583 entradas: mantém a compilação gerada e executa o validador Probe56 original.
+- **588 entradas, exatamente os 583 anteriores + cinco VS com os hashes
+  MemExport conhecidos**: verifica SHA256 de cada contêiner SBK extraído,
+  a assinatura dos dois bancos e a integridade zstd/SMOL-V do cache privado 43.
+  Somente após as verificações, reutiliza o **cache de diagnóstico original de
+  583 shaders**, armazenando o resultado novo no `build/` ignorado.
+- Qualquer outra contagem, shader diferente, banco adulterado, formato inválido
+  ou falta dos cinco VS: **bloqueia**, sem alteração do cache nem aprovação.
+
+Não trata os cinco shaders adicionais como executáveis corretos, não modifica
+código de memória GPU e não libera commits MemExport na RAM. Caso a contagem
+permaneça inesperada, consulte **somente** o JSON privado e informe
+`generated_entry_count` e `status`; não publique C++/SPIR-V/HLSL dos shaders.

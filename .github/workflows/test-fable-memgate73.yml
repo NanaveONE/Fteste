@@ -4,6 +4,8 @@ on:
   push:
     paths:
       - 'scripts/package_memgate73_private.py'
+      - 'scripts/reconcile_memgate73_shader_cache.py'
+      - 'tests/test_memgate73_shader_reconcile.py'
       - 'tests/test_memgate73.py'
       - 'docs/FABLE2-MEMGATE73.md'
       - '.github/workflows/build-fable-memgate73-arm64-private.yml'
@@ -23,6 +25,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m unittest discover -s tests -p 'test_memgate73.py' -v
+          python3 -m unittest discover -s tests -p 'test_memgate73_shader_reconcile.py' -v
           python3 -m py_compile scripts/package_memgate73_private.py
           python3 -m unittest discover -s tests -p 'test_memgate72.py' -v
           python3 -m unittest discover -s tests -p 'test_memgate71.py' -v

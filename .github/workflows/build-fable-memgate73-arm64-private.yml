@@ -117,6 +117,20 @@ jobs:
             > build/private-memgate73/translate.log 2>&1; then
             echo 'BLOCKED: tradução shader privada falhou; veja log na release privada.'; exit 2
           fi
+          # Reconcile the exact 583/588 historical diagnostic without ever
+          # granting MemExport writes. On any other count, save a private
+          # metadata-only report (no game shader source in public logs).
+          if ! python3 scripts/reconcile_memgate73_shader_cache.py \
+            --cache build/fable2-shaders/shader_cache.cpp \
+            --scan-dir build/fable2-shaders/xenos-scan \
+            --shader-report build/fable2-shaders/fable-shader-report.json \
+            --shader-bank build/private-memgate73/Shaders.sbk \
+            --shader-bank build/private-memgate73/ShadersRelease.sbk \
+            --diagnostic build/private-memgate73/Fable2-MemExport-DIAGNOSTICO-43.zip \
+            --report build/private-memgate73/cache-reconcile.json \
+            > build/private-memgate73/cache-reconcile.log 2>&1; then
+            echo 'BLOCKED: contagem de shaders inesperada; veja cache-reconcile.json no ZIP privado.'; exit 2
+          fi
           if ! python3 scripts/validate_gpu_probe56.py \
             --cache build/fable2-shaders/shader_cache.cpp \
             --scan-dir build/fable2-shaders/xenos-scan \
@@ -210,10 +224,14 @@ jobs:
           from zipfile import ZipFile, ZIP_DEFLATED
           d = Path('build/private-memgate73')
           logs = sorted(d.glob('*.log'))
-          if logs:
+          report = d/'cache-reconcile.json'
+          if logs or report.is_file():
               with ZipFile(d/'Fable2-Memgate73-LOGS-PRIVADO.zip','x',ZIP_DEFLATED) as z:
                   for f in logs:
                       z.write(f, f.name)
+                  # Counts and boolean flags only; no shader code or SBK data.
+                  if report.is_file():
+                      z.write(report, report.name)
           PY
           if [[ -s build/private-memgate73/Fable2-Memgate73-LOGS-PRIVADO.zip ]]; then
             gh release upload "$TAG" \
